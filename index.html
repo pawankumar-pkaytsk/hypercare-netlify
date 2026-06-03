@@ -1240,6 +1240,25 @@
     letter-spacing: -0.01em;
   }
 
+  /* "Experimental" tag (sellers in the Experimental Sellers sheet) */
+  .exp-tag {
+    display: inline-flex; align-items: center; gap: 3px;
+    margin-top: 4px;
+    padding: 1px 7px; border-radius: 999px;
+    background: linear-gradient(135deg, rgba(217,70,239,0.18), rgba(139,92,246,0.14));
+    color: #f0abfc;
+    font-size: 9.5px; font-weight: 700;
+    letter-spacing: 0.06em; text-transform: uppercase; white-space: nowrap;
+    border: 1px solid rgba(217,70,239,0.32);
+    backdrop-filter: blur(6px);
+  }
+  :root[data-theme="light"] .exp-tag {
+    background: linear-gradient(135deg, rgba(192,38,211,0.10), rgba(124,58,237,0.08));
+    color: #86198f;
+    border-color: rgba(192,38,211,0.30);
+  }
+  .exp-tag::before { content: "✦"; font-size: 9px; line-height: 1; opacity: .9; }
+
   /* "Funds Addition Required" alert pill (Prepaid accounts) */
   .funds-flag {
     display: inline-flex; align-items: center; gap: 4px;
@@ -1552,6 +1571,7 @@
       <button class="subtab" data-sub="sca-trouble">Troubleshoot Compliance</button>
       <button class="subtab" data-sub="sca-escalation">Escalation Compliance</button>
       <button class="subtab" data-sub="sca-arr">ARR View</button>
+      <button class="subtab" data-sub="sca-arrrec">ARR Recovery</button>
     </div>
     <div class="filter-bar" id="sca-filter">
       <span class="lbl">Filter by GC:</span>
@@ -1565,6 +1585,13 @@
     <div id="sub-sca-trouble"    class="subview"></div>
     <div id="sub-sca-escalation" class="subview"></div>
     <div id="sub-sca-arr"        class="subview"></div>
+    <div id="sub-sca-arrrec"     class="subview">
+      <div class="subtabs" id="arr-rec-subtabs" style="background:rgba(99,102,241,0.06);">
+        <button class="subtab active" data-arr-metric="spend">💰 Spend Track</button>
+        <button class="subtab" data-arr-metric="arr">📈 ARR Track</button>
+      </div>
+      <div id="arr-rec-body"></div>
+    </div>
   </div>
 
   <div id="view-Marketing" class="view active">
@@ -1575,6 +1602,7 @@
       <button class="subtab" data-sub="task">Task View</button>
       <button class="subtab" data-sub="trouble">Troubleshoot Compliance</button>
       <button class="subtab" data-sub="escalation">Escalation Compliance</button>
+      <button class="subtab" data-sub="revcomp">Revival Compliance</button>
     </div>
     <div class="filter-bar" id="mkt-filter">
       <span class="lbl">Filter by GC:</span>
@@ -1591,6 +1619,7 @@
     <div id="sub-task"       class="subview"></div>
     <div id="sub-trouble"    class="subview"></div>
     <div id="sub-escalation" class="subview"></div>
+    <div id="sub-revcomp"    class="subview"></div>
   </div>
 
   <div id="view-Unassignment" class="view"></div>
@@ -1608,6 +1637,8 @@
       <span class="chip on" data-gc="Sejal Negi">Sejal Negi</span>
       <span class="chip on" data-gc="Aanchal Agrawal">Aanchal Agrawal</span>
       <span class="chip on" data-gc="Faraz Pasha">Faraz Pasha</span>
+      <span class="chip on" data-gc="Vishal Thapa">Vishal Thapa</span>
+      <span class="chip on" data-gc="Debasish Das">Debasish Das</span>
     </div>
     <div id="sub-rev-seller" class="subview active"></div>
     <div id="sub-rev-call"   class="subview"></div>
@@ -1708,6 +1739,9 @@ const SHEETS = {
   remainingFunds: { fileId: "1cicfFtSEOnvxF_X4PJYEHTUeX4oIHhXIHl_hFAKPoCk",  tab: "Funds" },
   callContext:    { fileId: "1VijN6V3V0VnuEBxu9X5smEReMflGnS5lj3aOIe9zwEA",  tab: "Dump" },
   dailyARR:       { fileId: "1ks3cDRGVklGlFs4cQbhgTFTVBe5rJNt_qzAnQUxhNDk",  tab: "arr" },
+  experimental:   { fileId: "1dWdoWmhEwH5uCsgTe62GSmy8VjcRZ7DAneN3fFg7xTo",  tab: "experimental" },
+  revivalTrack:   { fileId: "1BFlI-jHjbfg8SQpS6iCNgL4oT8hbECUjvRXF060hHbo",  tab: "Revival Track + Unassignment" },
+  mspRecovery:    { fileId: "1L1I5Dh3t_LLgmr__1nENpszAa7FwktSOTrMNySlrk48",  tab: "Mapping" },
 };
 const SHEETS_FAILED_PLACEHOLDER = /^FILL_IN_/;
 // Optional convenience: persist file IDs to localStorage so you don't have to
@@ -1758,16 +1792,18 @@ const REV_OWNER_PATTERNS = {
   "Sejal Negi":      ["sejal"],
   "Aanchal Agrawal": ["aanchal"],
   "Faraz Pasha":     ["faraz"],
+  "Vishal Thapa":    ["vishal"],
+  "Debasish Das":    ["debasish", "debashish"],
 };
 const REFRESH_MS = 60 * 60 * 1000;
 const STALE_ON_FOCUS_MS = 5 * 60 * 1000;
-const CACHE_KEY = "hypercare_v15";
+const CACHE_KEY = "hypercare_v16";
 const TS_SPEND_THRESHOLD = 3540;
 const TS_DAYS_THRESHOLD = 7;
 const SPEND_THRESHOLD = 3540;
 const ACTIVE_DAYS = 45;
 const MKT_GCS = ["Aaruni Vaidya","Sadiya Rajgoli","Nikita S GC","Nishan Bandekar","Dev Vashisth"];
-const REV_GCS = ["Sejal Negi","Aanchal Agrawal","Faraz Pasha"];
+const REV_GCS = ["Sejal Negi","Aanchal Agrawal","Faraz Pasha","Vishal Thapa","Debasish Das"];
 const SCA_GCS = ["Sankhajit Ghosh"];
 const SCA_OWNER_PATTERNS = {
   "Sankhajit Ghosh": ["sankhajit"],
@@ -2072,10 +2108,70 @@ function processCallingCSV(text) {
   };
 }
 
+function processExperimentalCSV(text) {
+  // Positional: A=seller_id. Returns array of seller IDs flagged as experimental.
+  // (Array — not Set — so it survives JSON cache serialization. A Set is rebuilt
+  // on demand in isExperimentalSeller().)
+  const rows = parseCSV(text);
+  if (rows.length < 1) return { sellerIds: [], count: 0 };
+  const seen = new Set();
+  for (let i = 1; i < rows.length; i++) {
+    const r = rows[i];
+    if (!r || r.length < 1) continue;
+    const sid = norm(r[0]);
+    if (sid) seen.add(sid);
+  }
+  return { sellerIds: Array.from(seen), count: seen.size };
+}
+// Cached set for quick lookup during render
+let _EXPERIMENTAL_SET = null;
+function isExperimentalSeller(sid) {
+  if (!sid) return false;
+  if (_EXPERIMENTAL_SET === null) _buildExperimentalSet();
+  return _EXPERIMENTAL_SET.has(sid);
+}
+function _buildExperimentalSet() {
+  const payload = (typeof CACHED_PAYLOAD !== 'undefined' && CACHED_PAYLOAD) ? CACHED_PAYLOAD : null;
+  const arr = (payload && payload.experimental && payload.experimental.sellerIds) || [];
+  _EXPERIMENTAL_SET = new Set(arr);
+}
+
+function processRevivalTrackCSV(text) {
+  // "Revival Track + Unassignment" tab. Per user spec:
+  //   F = "GC Assigned?" (filter for "Mapping Done"), G = assigned-GC name.
+  // Other columns assumed to follow the Form Responses pattern:
+  //   A = Timestamp (revival timestamp), B = Seller ID, C = Seller Name,
+  //   D = Submitted By / Revived By, H = Amount Added.
+  // User can correct any of these if they don't match the actual sheet.
+  const rows = parseCSV(text);
+  if (rows.length < 2) throw new Error("Revival Track CSV too short (" + rows.length + " rows)");
+  const out = [];
+  for (let i = 1; i < rows.length; i++) {
+    const r = rows[i];
+    if (!r || r.length < 1) continue;
+    const sid = norm(r[1] || "");
+    if (!sid) continue;
+    const tsRaw = norm(r[0] || "");
+    const ts = parseDate(tsRaw);
+    out.push({
+      revival_ts_raw: tsRaw,
+      revival_ts:     ts,
+      revival_ts_iso: ts ? localISODate(ts) : null,
+      seller_id:      sid,
+      seller_name:    norm(r[2] || ""),
+      revived_by:     norm(r[3] || ""),
+      gc_assigned_status: norm(r[5] || ""),  // column F
+      assigned_gc:    norm(r[6] || ""),       // column G
+      amount_added:   num(r[7]),              // column H (guess — confirm)
+    });
+  }
+  return { rows: out, count: out.length };
+}
+
 function processDailyARRCSV(text) {
   // Positional schema (user spec):
-  //   A=seller_id, B=date, L=ARR
-  // Returns: { bySeller: { sid: { "YYYY-MM-DD": arr, ... } }, count }
+  //   A=seller_id, B=date, I=Total Spend, L=ARR
+  // Returns: { bySeller: { sid: { "YYYY-MM-DD": { spend, arr }, ... } }, count, date_range }
   const rows = parseCSV(text);
   if (rows.length < 2) throw new Error("Daily ARR CSV too short (" + rows.length + " rows)");
   const bySeller = {};
@@ -2090,11 +2186,43 @@ function processDailyARRCSV(text) {
     const dateKey = localISODate(d);
     if (!dateMin || dateKey < dateMin) dateMin = dateKey;
     if (!dateMax || dateKey > dateMax) dateMax = dateKey;
-    const arr = num(r[11]); // column L
+    const spend = num(r[8]);   // column I
+    const arr   = num(r[11]);  // column L
     if (!bySeller[sid]) bySeller[sid] = {};
-    bySeller[sid][dateKey] = arr;
+    bySeller[sid][dateKey] = { spend, arr };
   }
   return { bySeller, count: Object.keys(bySeller).length, date_range: [dateMin, dateMax] };
+}
+
+function processMSPRecoveryCSV(text) {
+  // Positional schema (user spec): A=seller_id, B=seller_name, C=GL, D=GM
+  const rows = parseCSV(text);
+  if (rows.length < 2) throw new Error("MSP Recovery CSV too short (" + rows.length + " rows)");
+  // Treat these as "no assignment" — placeholder/header-leak values rather than real GM/GL names.
+  const PLACEHOLDERS = new Set(["", "GM", "GL", "N/A", "NA", "-", "—", "NIL", "NONE", "TBD", "TBA", "BLANK"]);
+  const isPlaceholder = (v) => PLACEHOLDERS.has((v || "").toUpperCase().trim());
+  const bySeller = {};
+  const gmSet = new Set(), glSet = new Set();
+  for (let i = 1; i < rows.length; i++) {
+    const r = rows[i];
+    if (!r || r.length < 1) continue;
+    const sid = norm(r[0]);
+    if (!sid) continue;
+    const seller_name = norm(r[1] || "");
+    let gl = norm(r[2] || "");
+    let gm = norm(r[3] || "");
+    if (isPlaceholder(gl)) gl = "";
+    if (isPlaceholder(gm)) gm = "";
+    bySeller[sid] = { seller_name, gl, gm };
+    if (gm) gmSet.add(gm);
+    if (gl) glSet.add(gl);
+  }
+  return {
+    bySeller,
+    gms: Array.from(gmSet).sort(),
+    gls: Array.from(glSet).sort(),
+    count: Object.keys(bySeller).length,
+  };
 }
 
 function processCallContextCSV(text) {
@@ -2809,6 +2937,39 @@ async function fetchSheets() {
     LAST_FETCH_ERRORS.push({ key: "dailyARR", label: "Daily ARR sheet", error: e.message, fileId: SHEETS.dailyARR.fileId });
     dailyARR = { bySeller: {}, count: 0, error: e.message };
   }
+  // Experimental Sellers sheet — also optional
+  setStatus("loading", "Fetching Experimental Sellers sheet…");
+  let experimental = null;
+  try {
+    const exText = await fetchOne("Experimental Sellers sheet", SHEETS.experimental);
+    experimental = processExperimentalCSV(exText);
+  } catch (e) {
+    console.warn("Experimental Sellers sheet failed (non-fatal):", e.message);
+    LAST_FETCH_ERRORS.push({ key: "experimental", label: "Experimental Sellers sheet", error: e.message, fileId: SHEETS.experimental.fileId });
+    experimental = { sellerSet: new Set(), count: 0, error: e.message };
+  }
+  // Revival Track + Unassignment tab — also optional
+  setStatus("loading", "Fetching Revival Track sheet…");
+  let revivalTrack = null;
+  try {
+    const rtText = await fetchOne("Revival Track sheet", SHEETS.revivalTrack);
+    revivalTrack = processRevivalTrackCSV(rtText);
+  } catch (e) {
+    console.warn("Revival Track sheet failed (non-fatal):", e.message);
+    LAST_FETCH_ERRORS.push({ key: "revivalTrack", label: "Revival Track sheet", error: e.message, fileId: SHEETS.revivalTrack.fileId });
+    revivalTrack = { rows: [], count: 0, error: e.message };
+  }
+  // MSP Recovery (Seller → GL/GM mapping) — also optional
+  setStatus("loading", "Fetching MSP Recovery sheet…");
+  let mspRecovery = null;
+  try {
+    const msText = await fetchOne("MSP Recovery sheet", SHEETS.mspRecovery);
+    mspRecovery = processMSPRecoveryCSV(msText);
+  } catch (e) {
+    console.warn("MSP Recovery sheet failed (non-fatal):", e.message);
+    LAST_FETCH_ERRORS.push({ key: "mspRecovery", label: "MSP Recovery sheet", error: e.message, fileId: SHEETS.mspRecovery.fileId });
+    mspRecovery = { bySeller: {}, gms: [], gls: [], count: 0, error: e.message };
+  }
   setStatus("loading", "Parsing CSVs…");
   const hyp = processHypercareCSV(h);
   let calls;
@@ -2825,6 +2986,9 @@ async function fetchSheets() {
   const data = buildDashboardData(hyp, calls, revived, tasks, troubleshoot, chatReply, unassignment, remainingFunds);
   data.callContext = callContext;
   data.dailyARR = dailyARR;
+  data.experimental = experimental;
+  data.revivalTrack = revivalTrack;
+  data.mspRecovery = mspRecovery;
   return data;
 }
 async function refresh() {
@@ -2838,6 +3002,7 @@ async function refresh() {
   try {
     const payload = await fetchSheets();
     DATA = payload.mkt; REVIVAL = payload.revival; SCALING = payload.scaling || null; CACHED_PAYLOAD = payload;
+    _EXPERIMENTAL_SET = null;  // force rebuild on next render
     META.lastFetch = Date.now();
     saveCache(payload);
     renderAll(); revRenderAll(); renderScaling();
@@ -2984,7 +3149,7 @@ function renderSellerView() {
         ? '<div><span class="funds-flag">Funds Addition Required</span></div>'
         : '';
       return `<tr>
-        <td class="id">${s.seller_id}</td>
+        ${sellerIdCell(s.seller_id)}
         <td>${nameCell}</td>
         <td class="gc">${s.gc_display}</td>
         <td>${acctType}</td>
@@ -3033,7 +3198,7 @@ function renderBucketHealth() {
     <th class="num">PNL ${wL[1]}</th><th class="num">Spend ${wL[1]}</th>
     <th class="num">PNL ${wL[2]}</th><th class="num">Spend ${wL[2]}</th>
     </tr></thead><tbody>
-    ${sellers.map(s => `<tr><td class="id">${s.seller_id}</td><td>${s.seller_name || '<span class="empty-cell">—</span>'}</td><td class="gc">${s.gc_display}</td><td class="num">${fmtNum(s.today_spend)}</td><td class="num">${fmtNum(s.yesterday_spend)}</td><td class="num">${fmtPNL(s.pnl_w20)}</td><td class="num">${fmtNum(s.spend_w20)}</td><td class="num">${fmtPNL(s.pnl_w19)}</td><td class="num">${fmtNum(s.spend_w19)}</td><td class="num">${fmtPNL(s.pnl_w18)}</td><td class="num">${fmtNum(s.spend_w18)}</td></tr>`).join('')}
+    ${sellers.map(s => `<tr>${sellerIdCell(s.seller_id)}<td>${s.seller_name || '<span class="empty-cell">—</span>'}</td><td class="gc">${s.gc_display}</td><td class="num">${fmtNum(s.today_spend)}</td><td class="num">${fmtNum(s.yesterday_spend)}</td><td class="num">${fmtPNL(s.pnl_w20)}</td><td class="num">${fmtNum(s.spend_w20)}</td><td class="num">${fmtPNL(s.pnl_w19)}</td><td class="num">${fmtNum(s.spend_w19)}</td><td class="num">${fmtPNL(s.pnl_w18)}</td><td class="num">${fmtNum(s.spend_w18)}</td></tr>`).join('')}
     </tbody></table></div>`;
   document.getElementById('sub-bucket').innerHTML = `
     <div class="card">
@@ -3186,7 +3351,7 @@ function buildCallView(ctx) {
                : (dc <= 3 ? '#047857' : (dc <= 7 ? '#b45309' : '#b91c1c'));
     const gcLabel = s.gc_display || s.crm_gc || '';
     return `<tr>
-      <td class="id">${s.seller_id}</td>
+      ${sellerIdCell(s.seller_id)}
       <td>${s.seller_name || '<span class="empty-cell">—</span>'}</td>
       <td class="gc">${gcLabel}</td>
       <td style="color:#475569;">${s.call_last_trigger || '<span class="empty-cell">—</span>'}</td>
@@ -3729,6 +3894,14 @@ function normUrl(s) {
   if (/^https?:\/\//i.test(v)) return v;
   return "https://" + v.replace(/^\/+/, "");
 }
+// Renders the seller ID with an optional Experimental tag below it.
+// Use this anywhere `<td class="id">${sid}</td>` was used previously.
+function sellerIdCell(sid) {
+  const tag = isExperimentalSeller(sid)
+    ? `<div><span class="exp-tag">Experimental</span></div>`
+    : '';
+  return `<td class="id">${escHtml(sid)}${tag}</td>`;
+}
 // Strip JSON-ish wrappers like {"shopdeckActionable":"…"} or ({...}) to surface
 // only the human-readable action text. Also drops a leading "ShopDeck " brand
 // prefix because the user already knows it's a ShopDeck actionable.
@@ -3865,7 +4038,7 @@ function renderTroubleshoot() {
         ? `${escHtml(lastDate)}${ds !== null ? ` <span style="color:#94a3b8;font-size:11px;">(${ds}d ago)</span>` : ''}`
         : '<span class="empty-cell">—</span>';
       return `<tr>
-        <td class="id">${escHtml(r.seller_id)}</td>
+        ${sellerIdCell(r.seller_id)}
         <td>${escHtml(sellerName) || '<span class="empty-cell">—</span>'}</td>
         <td class="gc">${escHtml(display)}</td>
         <td class="num">${r.total_ts || 0}</td>
@@ -3899,11 +4072,106 @@ function renderTroubleshoot() {
   </div>`;
 }
 function renderEscalation()  { document.getElementById('sub-escalation').innerHTML = `<div class="card"><h3>Escalation Compliance <span class="pending-tag">AWAITING SCHEMA</span></h3><div class="pending-card"><h4>View definition pending</h4></div></div>`; }
+
+function renderRevivalCompliance() {
+  const host = document.getElementById('sub-revcomp');
+  if (!host) return;
+  const payload = (typeof CACHED_PAYLOAD !== 'undefined' && CACHED_PAYLOAD) ? CACHED_PAYLOAD : null;
+  const rt = payload && payload.revivalTrack ? payload.revivalTrack : null;
+  if (!rt || rt.error) {
+    const errMsg = rt && rt.error ? `Fetch failed: ${String(rt.error).slice(0,140)}…` : "Loading…";
+    host.innerHTML = `<div class="card"><h3>Revival Compliance <span class="pending-tag">REVIVAL TRACK</span></h3><div class="pending-card"><h4>${escHtml(errMsg)}</h4></div></div>`;
+    return;
+  }
+  // Build a seller_id → marketing-seller map so we can read today/yesterday spend
+  const mktBySeller = {};
+  ((DATA && DATA.sellers) || []).forEach(s => { mktBySeller[s.seller_id] = s; });
+
+  // Filter: only rows with "Mapping Done" status AND today/yesterday spend < 50
+  // AND the seller is in the Marketing seller list (since this is a Marketing
+  // view — Marketing GCs are the audience).
+  const today0 = new Date(); today0.setHours(0,0,0,0);
+  const eligible = (rt.rows || []).filter(r => {
+    if (!/mapping\s*done/i.test(r.gc_assigned_status || "")) return false;
+    const mkt = mktBySeller[r.seller_id];
+    if (!mkt) return false;
+    const today = mkt.today_spend || 0;
+    const yest  = mkt.yesterday_spend || 0;
+    return (today < 50) && (yest < 50);
+  });
+
+  // Sort by revival timestamp descending (newest first)
+  eligible.sort((a, b) => {
+    const da = a.revival_ts ? a.revival_ts.getTime() : 0;
+    const db = b.revival_ts ? b.revival_ts.getTime() : 0;
+    return db - da;
+  });
+
+  // Summary cards
+  const totalRevived = (rt.rows || []).filter(r => /mapping\s*done/i.test(r.gc_assigned_status || "")).length;
+  const flagged = eligible.length;
+  const summary = `<div class="sl-grid">
+    <div class="sl-card overall">
+      <div class="sl-label">Revived &amp; mapped — total</div>
+      <div class="sl-value">${fmtNum(totalRevived)}</div>
+      <div class="sl-sub">From Revival Track sheet · status: Mapping Done</div>
+    </div>
+    <div class="sl-card" style="border-color:rgba(248,113,113,0.40);">
+      <div class="sl-label">Flagged: Spend Not Started</div>
+      <div class="sl-value" style="color:var(--danger);">${fmtNum(flagged)}</div>
+      <div class="sl-sub">Today &lt; ₹50 AND Yesterday &lt; ₹50</div>
+    </div>
+  </div>`;
+
+  const tableRows = eligible.map(r => {
+    const mkt = mktBySeller[r.seller_id] || {};
+    const name = r.seller_name || mkt.seller_name || '';
+    const tsLabel = r.revival_ts
+      ? localDateTime(r.revival_ts)
+      : (r.revival_ts_raw || '');
+    const amount = (r.amount_added !== null && r.amount_added !== undefined)
+      ? fmtNum(r.amount_added)
+      : (r.amount_added === 0 ? '0' : '<span class="empty-cell">—</span>');
+    return `<tr>
+      ${sellerIdCell(r.seller_id)}
+      <td>${escHtml(name) || '<span class="empty-cell">—</span>'}</td>
+      <td>${escHtml(r.revived_by) || '<span class="empty-cell">—</span>'}</td>
+      <td style="white-space:nowrap;color:#475569;">${escHtml(tsLabel) || '<span class="empty-cell">—</span>'}</td>
+      <td class="num" style="font-weight:600;color:${(r.amount_added || 0) > 0 ? 'var(--success)' : 'var(--text-faint)'};">${amount}</td>
+      <td class="gc">${escHtml(r.assigned_gc) || '<span class="empty-cell">—</span>'}</td>
+      <td class="num">${fmtNum(mkt.today_spend)}</td>
+      <td class="num">${fmtNum(mkt.yesterday_spend)}</td>
+    </tr>`;
+  }).join('');
+
+  host.innerHTML = `<div class="card">
+    <h3>Revival Compliance <span class="src-tag">LIVE</span></h3>
+    <p style="color:#475569;font-size:12px;margin:0 0 12px 0;">
+      Sellers who have been revived (status: Mapping Done in the Revival Track sheet) and assigned
+      to a Marketing GC, but where Today's spend <b>and</b> Yesterday's spend are both under ₹50.
+      These are sellers the Marketing GC needs to chase — they're freshly revived but haven't started spending yet.
+    </p>
+    ${summary}
+    <div class="tbl-wrap">
+      <table class="t">
+        <thead><tr>
+          <th>Seller ID</th><th>Seller Name</th><th>Revived By</th>
+          <th>Revival Timestamp</th><th class="num">Amount Added</th>
+          <th>Assigned GC</th>
+          <th class="num">Today Spend</th><th class="num">Yesterday Spend</th>
+        </tr></thead>
+        <tbody>${tableRows || `<tr><td colspan="8" style="text-align:center;color:#94a3b8;padding:20px;">No flagged sellers — everyone who's been revived has started spending.</td></tr>`}</tbody>
+      </table>
+    </div>
+    <p style="color:#94a3b8;font-size:11px;margin-top:6px;">${eligible.length} flagged seller${eligible.length===1?'':'s'} · ${totalRevived} total revived &amp; mapped.</p>
+  </div>`;
+}
 function renderAll() {
   if (!DATA) return;
   document.getElementById('cnt-Marketing').textContent = MKT_GCS.length;
   renderSellerView(); renderBucketHealth(); renderCallView();
   renderTaskView(); renderTroubleshoot(); renderEscalation();
+  renderRevivalCompliance();
   renderUnassignment();
   // Refresh the Daily Report if the tab is currently being shown (so live
   // numbers update without the user having to switch tabs).
@@ -3930,7 +4198,7 @@ function revRenderSellerView() {
     const d = s.days_since_spend;
     const col = d === null ? '#cbd5e1' : (d <= 7 ? '#047857' : (d <= 30 ? '#b45309' : '#b91c1c'));
     const lastSpend = fmtDDMMYY(s.last_spend_date) || escHtml(s.last_spend_date || '');
-    return `<tr><td class="id">${s.seller_id}</td><td>${s.seller_name || '<span class="empty-cell">—</span>'}</td><td class="gc">${s.crm_gc}</td><td style="color:#475569;white-space:nowrap;">${lastSpend || '<span class="empty-cell">—</span>'}</td><td class="num" style="color:${col};font-weight:600;">${d === null ? '—' : d}</td></tr>`;
+    return `<tr>${sellerIdCell(s.seller_id)}<td>${s.seller_name || '<span class="empty-cell">—</span>'}</td><td class="gc">${s.crm_gc}</td><td style="color:#475569;white-space:nowrap;">${lastSpend || '<span class="empty-cell">—</span>'}</td><td class="num" style="color:${col};font-weight:600;">${d === null ? '—' : d}</td></tr>`;
   }).join('')}</tbody></table></div>`;
   document.getElementById('sub-rev-seller').innerHTML = `
     <div class="card">
@@ -4188,7 +4456,7 @@ function scaRenderSellerView() {
         ? '<div><span class="funds-flag">Funds Addition Required</span></div>'
         : '';
       return `<tr>
-        <td class="id">${s.seller_id}</td>
+        ${sellerIdCell(s.seller_id)}
         <td>${nameCell}</td>
         <td class="gc">${s.gc_display}</td>
         <td>${acctType}</td>
@@ -4229,7 +4497,7 @@ function scaRenderBucketHealth() {
     <th class="num">PNL ${wL[1]}</th><th class="num">Spend ${wL[1]}</th>
     <th class="num">PNL ${wL[2]}</th><th class="num">Spend ${wL[2]}</th>
     </tr></thead><tbody>
-    ${sellers.map(s => `<tr><td class="id">${s.seller_id}</td><td>${s.seller_name || '<span class="empty-cell">—</span>'}</td><td class="gc">${s.gc_display}</td><td class="num">${fmtNum(s.today_spend)}</td><td class="num">${fmtNum(s.yesterday_spend)}</td><td class="num">${fmtPNL(s.pnl_w20)}</td><td class="num">${fmtNum(s.spend_w20)}</td><td class="num">${fmtPNL(s.pnl_w19)}</td><td class="num">${fmtNum(s.spend_w19)}</td><td class="num">${fmtPNL(s.pnl_w18)}</td><td class="num">${fmtNum(s.spend_w18)}</td></tr>`).join('')}
+    ${sellers.map(s => `<tr>${sellerIdCell(s.seller_id)}<td>${s.seller_name || '<span class="empty-cell">—</span>'}</td><td class="gc">${s.gc_display}</td><td class="num">${fmtNum(s.today_spend)}</td><td class="num">${fmtNum(s.yesterday_spend)}</td><td class="num">${fmtPNL(s.pnl_w20)}</td><td class="num">${fmtNum(s.spend_w20)}</td><td class="num">${fmtPNL(s.pnl_w19)}</td><td class="num">${fmtNum(s.spend_w19)}</td><td class="num">${fmtPNL(s.pnl_w18)}</td><td class="num">${fmtNum(s.spend_w18)}</td></tr>`).join('')}
     </tbody></table></div>`;
   document.getElementById('sub-sca-bucket').innerHTML = `
     <div class="card">
@@ -4337,7 +4605,7 @@ function scaRenderTroubleshoot() {
         ? `${escHtml(fmtDDMMYY(lastDate) || lastDate)}${ds !== null ? ` <span style="color:#94a3b8;font-size:11px;">(${ds}d ago)</span>` : ''}`
         : '<span class="empty-cell">—</span>';
       return `<tr>
-        <td class="id">${escHtml(r.seller_id)}</td>
+        ${sellerIdCell(r.seller_id)}
         <td>${escHtml(sellerName) || '<span class="empty-cell">—</span>'}</td>
         <td class="gc">${escHtml(display)}</td>
         <td class="num">${r.total_ts || 0}</td>
@@ -4404,18 +4672,22 @@ function scaRenderARRView() {
   const rows = sellers.map(s => {
     const sellerArr = arrAvailable ? (dailyARR.bySeller[s.seller_id] || {}) : {};
     const cells = days.map((iso, idx) => {
-      const v = sellerArr[iso];
+      const cell = sellerArr[iso];
+      const v = cell && typeof cell === 'object' ? cell.arr : cell;
       if (v === undefined || v === null) {
         return `<td class="num"><span class="empty-cell">—</span></td>`;
       }
       totals[idx] += v;
-      // Color hint: zero/null = grey, >0 = white
       const color = v > 0 ? 'var(--text)' : 'var(--text-faint)';
       return `<td class="num" style="color:${color};">${fmtNum(v)}</td>`;
     }).join('');
-    const sellerTotal = days.reduce((a, iso) => a + (sellerArr[iso] || 0), 0);
+    const sellerTotal = days.reduce((a, iso) => {
+      const c = sellerArr[iso];
+      const val = c && typeof c === 'object' ? (c.arr || 0) : (c || 0);
+      return a + val;
+    }, 0);
     return `<tr>
-      <td class="id">${s.seller_id}</td>
+      ${sellerIdCell(s.seller_id)}
       <td>${escHtml(s.seller_name) || '<span class="empty-cell">—</span>'}</td>
       ${cells}
       <td class="num" style="font-weight:700;color:var(--brand);">${sellerTotal ? fmtNum(sellerTotal) : '<span class="empty-cell">—</span>'}</td>
@@ -4461,6 +4733,257 @@ function scaRenderARRView() {
   if (rst) rst.addEventListener('click', () => { arrEndDate = localISODate(new Date()); scaRenderARRView(); });
 }
 
+// ============================================================
+//                    ARR Recovery
+// ============================================================
+let arrRecMetric = "spend";   // "spend" | "arr"
+let arrRecAspect = "seller";  // "seller" | "gm" | "gl"
+let arrRecEndDate = null;     // ISO YYYY-MM-DD
+function _arrRecValue(cell, metric) {
+  if (cell === undefined || cell === null) return null;
+  if (typeof cell === 'object') return metric === 'spend' ? cell.spend : cell.arr;
+  // legacy: cell was a plain number (treated as ARR)
+  return metric === 'arr' ? cell : null;
+}
+function renderARRRecovery() {
+  const host = document.getElementById('arr-rec-body');
+  if (!host) return;
+  if (!arrRecEndDate) arrRecEndDate = localISODate(new Date());
+
+  const payload = (typeof CACHED_PAYLOAD !== 'undefined' && CACHED_PAYLOAD) ? CACHED_PAYLOAD : null;
+  const msp = payload && payload.mspRecovery ? payload.mspRecovery : null;
+  const dailyARR = payload && payload.dailyARR ? payload.dailyARR : null;
+
+  if (!msp || msp.error) {
+    const err = msp && msp.error ? `MSP Recovery sheet failed: ${String(msp.error).slice(0,180)}` : "Loading MSP Recovery sheet…";
+    host.innerHTML = `<div class="card"><h3>ARR Recovery <span class="pending-tag">MSP MAPPING</span></h3><div class="pending-card"><h4>${escHtml(err)}</h4></div></div>`;
+    return;
+  }
+  if (!dailyARR || dailyARR.error) {
+    const err = dailyARR && dailyARR.error ? `Daily ARR sheet failed: ${String(dailyARR.error).slice(0,180)}` : "Loading daily ARR sheet…";
+    host.innerHTML = `<div class="card"><h3>ARR Recovery <span class="pending-tag">DAILY ARR</span></h3><div class="pending-card"><h4>${escHtml(err)}</h4></div></div>`;
+    return;
+  }
+
+  // Build 7-day window ending on arrRecEndDate
+  const end = new Date(arrRecEndDate + "T00:00:00");
+  const days = [];
+  for (let i = 6; i >= 0; i--) {
+    const d = new Date(end.getTime() - i * 86400000);
+    days.push(localISODate(d));
+  }
+  const headerCells = days.map(iso => {
+    const d = new Date(iso + "T00:00:00");
+    const label = d.toLocaleDateString('en-IN', { day: '2-digit', month: 'short' });
+    return `<th class="num">${escHtml(label)}<br><span style="font-weight:400;color:#94a3b8;font-size:10px;">${escHtml(iso)}</span></th>`;
+  }).join('');
+
+  // Helper: per-seller value for a date
+  function v(sid, iso) {
+    const row = dailyARR.bySeller[sid];
+    if (!row) return null;
+    return _arrRecValue(row[iso], arrRecMetric);
+  }
+
+  // Choose the seller universe — MSP Recovery list (only sellers in MSP mapping)
+  const sellerIds = Object.keys(msp.bySeller);
+
+  // Build table per aspect (and capture the row data for CSV export)
+  let tableHTML = "";
+  let exportData = [];   // array of plain objects, one per row, for CSV export
+  const metricLabel = arrRecMetric === 'spend' ? 'Total Spend' : 'ARR';
+  const fmtCell = val => val == null
+    ? `<td class="num"><span class="empty-cell">—</span></td>`
+    : `<td class="num" style="color:${val > 0 ? 'var(--text)' : 'var(--text-faint)'};">${fmtNum(val)}</td>`;
+
+  if (arrRecAspect === "seller") {
+    // Per-seller rows
+    const colTotals = days.map(_ => 0);
+    let grandTotal = 0;
+    const rowData = sellerIds.map(sid => {
+      const meta = msp.bySeller[sid] || {};
+      const cells = days.map((iso, idx) => {
+        const val = v(sid, iso);
+        if (val != null) { colTotals[idx] += val; grandTotal += val; }
+        return { iso, val };
+      });
+      const rowTotal = cells.reduce((a, c) => a + (c.val || 0), 0);
+      return { sid, meta, cells, rowTotal };
+    });
+    // Sort by row total descending (sellers with data first)
+    rowData.sort((a, b) => b.rowTotal - a.rowTotal);
+
+    // Build CSV export data
+    exportData = rowData.map(({ sid, meta, cells, rowTotal }) => {
+      const row = {
+        "Seller ID": sid,
+        "Seller Name": meta.seller_name || "",
+        "GM": meta.gm || "",
+        "GL": meta.gl || "",
+      };
+      days.forEach((iso, idx) => { row[iso] = cells[idx].val == null ? "" : cells[idx].val; });
+      row["7-day Total"] = rowTotal || 0;
+      return row;
+    });
+    // Append totals row
+    if (exportData.length > 0) {
+      const totRow = { "Seller ID": "TOTAL", "Seller Name": "", "GM": "", "GL": "" };
+      days.forEach((iso, idx) => { totRow[iso] = colTotals[idx]; });
+      totRow["7-day Total"] = grandTotal;
+      exportData.push(totRow);
+    }
+
+    const tableRows = rowData.map(({ sid, meta, cells, rowTotal }) => `<tr>
+      ${sellerIdCell(sid)}
+      <td>${escHtml(meta.seller_name) || '<span class="empty-cell">—</span>'}</td>
+      <td>${escHtml(meta.gm) || '<span class="empty-cell">—</span>'}</td>
+      <td>${escHtml(meta.gl) || '<span class="empty-cell">—</span>'}</td>
+      ${cells.map(c => fmtCell(c.val)).join('')}
+      <td class="num" style="font-weight:700;color:var(--brand);">${rowTotal ? fmtNum(rowTotal) : '<span class="empty-cell">—</span>'}</td>
+    </tr>`).join('');
+    const totalsRow = `<tr style="background:rgba(99,102,241,0.10);border-top:2px solid var(--border-strong);">
+      <td colspan="4" style="font-weight:700;color:var(--text);">TOTAL</td>
+      ${colTotals.map(t => `<td class="num" style="font-weight:700;color:var(--text);">${t ? fmtNum(t) : '—'}</td>`).join('')}
+      <td class="num" style="font-weight:800;color:var(--brand);">${fmtNum(grandTotal)}</td>
+    </tr>`;
+    tableHTML = `<div class="tbl-wrap">
+      <table class="t">
+        <thead><tr>
+          <th>Seller ID</th><th>Seller Name</th><th>GM</th><th>GL</th>
+          ${headerCells}<th class="num">7-day Total</th>
+        </tr></thead>
+        <tbody>${tableRows || `<tr><td colspan="12" style="text-align:center;color:#94a3b8;padding:20px;">No sellers in MSP Recovery mapping.</td></tr>`}${tableRows ? totalsRow : ''}</tbody>
+      </table>
+    </div>`;
+  } else {
+    // Aspect = GM or GL — aggregate seller values into rows
+    const groupBy = arrRecAspect === "gm" ? "gm" : "gl";
+    const groupNames = arrRecAspect === "gm" ? msp.gms : msp.gls;
+    const labelHeader = arrRecAspect === "gm" ? "GM Name" : "GL Name";
+
+    // Build sid → group lookup
+    const sidToGroup = {};
+    sellerIds.forEach(sid => {
+      const meta = msp.bySeller[sid];
+      sidToGroup[sid] = meta ? (meta[groupBy] || "") : "";
+    });
+
+    // Aggregate
+    const byGroup = {};   // group → { day_iso: sum }
+    groupNames.forEach(g => { byGroup[g] = { _sellers: 0 }; days.forEach(d => byGroup[g][d] = 0); });
+    sellerIds.forEach(sid => {
+      const g = sidToGroup[sid];
+      if (!g || !byGroup[g]) return;
+      byGroup[g]._sellers++;
+      days.forEach(iso => {
+        const val = v(sid, iso);
+        if (val != null) byGroup[g][iso] += val;
+      });
+    });
+
+    const colTotals = days.map(_ => 0);
+    let grandTotal = 0;
+    const groupData = groupNames.map(g => {
+      const dayVals = days.map((iso, idx) => {
+        const val = byGroup[g][iso];
+        colTotals[idx] += val;
+        grandTotal += val;
+        return val;
+      });
+      const rowTotal = dayVals.reduce((a, v) => a + v, 0);
+      return { g, dayVals, rowTotal, sellerCount: byGroup[g]._sellers };
+    });
+    groupData.sort((a, b) => b.rowTotal - a.rowTotal);
+
+    // Build CSV export data
+    exportData = groupData.map(({ g, dayVals, rowTotal, sellerCount }) => {
+      const row = { [labelHeader]: g, "Sellers": sellerCount };
+      days.forEach((iso, idx) => { row[iso] = dayVals[idx]; });
+      row["7-day Total"] = rowTotal;
+      return row;
+    });
+    if (exportData.length > 0) {
+      const totRow = { [labelHeader]: "TOTAL", "Sellers": "" };
+      days.forEach((iso, idx) => { totRow[iso] = colTotals[idx]; });
+      totRow["7-day Total"] = grandTotal;
+      exportData.push(totRow);
+    }
+
+    const tableRows = groupData.map(({ g, dayVals, rowTotal, sellerCount }) => `<tr>
+      <td style="font-weight:600;color:var(--text);">${escHtml(g)}<br><span style="font-size:10px;color:var(--text-faint);font-weight:400;">${sellerCount} seller${sellerCount===1?'':'s'}</span></td>
+      ${dayVals.map(v => fmtCell(v)).join('')}
+      <td class="num" style="font-weight:700;color:var(--brand);">${rowTotal ? fmtNum(rowTotal) : '<span class="empty-cell">—</span>'}</td>
+    </tr>`).join('');
+    const totalsRow = `<tr style="background:rgba(99,102,241,0.10);border-top:2px solid var(--border-strong);">
+      <td style="font-weight:700;color:var(--text);">TOTAL</td>
+      ${colTotals.map(t => `<td class="num" style="font-weight:700;color:var(--text);">${t ? fmtNum(t) : '—'}</td>`).join('')}
+      <td class="num" style="font-weight:800;color:var(--brand);">${fmtNum(grandTotal)}</td>
+    </tr>`;
+    tableHTML = `<div class="tbl-wrap">
+      <table class="t">
+        <thead><tr><th>${labelHeader}</th>${headerCells}<th class="num">7-day Total</th></tr></thead>
+        <tbody>${tableRows || `<tr><td colspan="9" style="text-align:center;color:#94a3b8;padding:20px;">No ${arrRecAspect.toUpperCase()}s in MSP Recovery mapping.</td></tr>`}${tableRows ? totalsRow : ''}</tbody>
+      </table>
+    </div>`;
+  }
+
+  // Aspect button row
+  const aspectButtons = [
+    { id: "seller", label: "Seller wise" },
+    { id: "gm",     label: "GM wise" },
+    { id: "gl",     label: "GL wise" },
+  ].map(a => `<button type="button" class="chip${arrRecAspect===a.id?' on':''}" data-arr-aspect="${a.id}">${escHtml(a.label)}</button>`).join('');
+
+  const drCoverage = dailyARR.date_range
+    ? `Daily ARR source covers ${dailyARR.date_range[0]} → ${dailyARR.date_range[1]} · ${fmtNum(dailyARR.count)} sellers`
+    : `Daily ARR source loaded`;
+
+  host.innerHTML = `
+    <div class="card" style="background:linear-gradient(135deg, rgba(99,102,241,0.10), rgba(34,211,238,0.04));">
+      <div style="display:flex;gap:12px;align-items:center;flex-wrap:wrap;">
+        <span class="lbl">Aspect:</span>
+        ${aspectButtons}
+        <span style="flex:1 1 30px;"></span>
+        <label style="font-size:12px;color:var(--text-soft);font-weight:600;">Week ending:</label>
+        <input type="date" id="arr-rec-end" value="${escHtml(arrRecEndDate)}" style="padding:6px 10px;border:1px solid var(--border-strong);border-radius:8px;font-size:13px;">
+        <button type="button" class="refresh-btn" id="arr-rec-reset">Reset to today</button>
+      </div>
+      <p style="margin:10px 0 0 0;font-size:12px;color:var(--text-soft);">
+        Showing <b>${escHtml(metricLabel)}</b> for the 7 days ending ${escHtml(arrRecEndDate)}, ${arrRecAspect === 'seller' ? 'per seller' : `aggregated by ${arrRecAspect.toUpperCase()}`}. ${escHtml(drCoverage)}.
+      </p>
+    </div>
+    <div class="card">
+      <h3 style="justify-content:space-between;">
+        <span style="display:inline-flex;align-items:center;gap:10px;">${escHtml(metricLabel)} · ${arrRecAspect === 'seller' ? 'Seller view' : (arrRecAspect === 'gm' ? 'GM view' : 'GL view')} <span class="src-tag">LIVE</span></span>
+        <button type="button" class="drill-export" id="arr-rec-export" title="Download this table as CSV">⇣ CSV</button>
+      </h3>
+      ${tableHTML}
+    </div>
+  `;
+
+  // Wire interactions
+  document.querySelectorAll('#arr-rec-subtabs [data-arr-metric]').forEach(b => {
+    b.classList.toggle('active', b.dataset.arrMetric === arrRecMetric);
+    b.onclick = () => {
+      arrRecMetric = b.dataset.arrMetric;
+      renderARRRecovery();
+    };
+  });
+  host.querySelectorAll('[data-arr-aspect]').forEach(b => {
+    b.onclick = () => { arrRecAspect = b.dataset.arrAspect; renderARRRecovery(); };
+  });
+  const dateInp = document.getElementById('arr-rec-end');
+  const reset = document.getElementById('arr-rec-reset');
+  if (dateInp) dateInp.addEventListener('change', e => { arrRecEndDate = e.target.value; renderARRRecovery(); });
+  if (reset) reset.addEventListener('click', () => { arrRecEndDate = localISODate(new Date()); renderARRRecovery(); });
+  const exportBtn = document.getElementById('arr-rec-export');
+  if (exportBtn) exportBtn.addEventListener('click', () => {
+    if (!exportData.length) return;
+    const filename = `arr-recovery-${arrRecMetric}-${arrRecAspect}-${arrRecEndDate}`;
+    exportRowsAsCSV(exportData, filename);
+  });
+}
+
 function renderScaling() {
   if (!SCALING) {
     document.getElementById('view-Scaling').querySelector('#sub-sca-seller').innerHTML =
@@ -4475,6 +4998,7 @@ function renderScaling() {
   scaRenderTroubleshoot();
   scaRenderEscalation();
   scaRenderARRView();
+  renderARRRecovery();
 }
 
 // ============================================================
@@ -5650,7 +6174,7 @@ function weekSortKey(label) {
   return s;
 }
 // ---- Unassignment filter state ----
-const UNAS_ASSIGNEES = ["Aanchal Agrawal", "Faraz Pasha", "Sejal Negi"];
+const UNAS_ASSIGNEES = ["Aanchal Agrawal", "Faraz Pasha", "Sejal Negi", "Vishal Thapa", "Debasish Das"];
 let unasFilterMode = "week";        // "week" | "date"
 let unasWeekFrom = "__min__";       // sentinel = oldest in sheet
 let unasWeekTo   = "__max__";       // sentinel = newest in sheet
