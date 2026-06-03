@@ -2696,8 +2696,13 @@ function _scheduleTokenRefresh(expiresInSec) {
     refreshAccessTokenSilent().catch(e => console.warn("silent refresh failed:", e));
   }, ms);
 }
+let _REFRESH_IN_FLIGHT = null;
 function refreshAccessTokenSilent() {
-  return new Promise((resolve, reject) => {
+  // Coalesce concurrent refreshes: when many parallel sheet fetches all hit a
+  // 401 at the same time, they must share ONE token refresh rather than each
+  // firing its own requestAccessToken (which would corrupt the shared callback).
+  if (_REFRESH_IN_FLIGHT) return _REFRESH_IN_FLIGHT;
+  _REFRESH_IN_FLIGHT = new Promise((resolve, reject) => {
     if (!OAUTH_TOKEN_CLIENT) return reject(new Error("token client not ready"));
     const origCb = OAUTH_TOKEN_CLIENT.callback;
     OAUTH_TOKEN_CLIENT.callback = (resp) => {
@@ -2714,7 +2719,8 @@ function refreshAccessTokenSilent() {
     // prompt: '' = silent (uses existing consent)
     try { OAUTH_TOKEN_CLIENT.requestAccessToken({ prompt: "" }); }
     catch (e) { reject(e); }
-  });
+  }).finally(() => { _REFRESH_IN_FLIGHT = null; });
+  return _REFRESH_IN_FLIGHT;
 }
 async function _fetchUserInfo() {
   if (!OAUTH_ACCESS_TOKEN) return;
@@ -2825,151 +2831,81 @@ function _isPermissionError(err) {
 }
 async function fetchSheets() {
   LAST_FETCH_ERRORS = [];
-  setStatus("loading", "Fetching Hypercare Metrics…");
-  let h = null;
-  try {
-    h = await fetchOne("Hypercare Metrics", SHEETS.hypercare);
-  } catch (e) {
-    console.warn("Hypercare Metrics failed:", e.message);
-    LAST_FETCH_ERRORS.push({ key: "hypercare", label: "Hypercare Metrics", error: e.message, fileId: SHEETS.hypercare.fileId });
+  setStatus("loading", "Fetching all sheets in parallel…");
+
+  // Fire EVERY sheet request at once instead of awaiting them one by one.
+  // Total wait time becomes the slowest single sheet, not the sum of all 13
+  // sequential round-trips.
+  const FETCH_JOBS = [
+    ["hypercare",      "Hypercare Metrics"],
+    ["calling",        "Calling sheet"],
+    ["revived",        "Revived sheet"],
+    ["tasks",          "Tasks sheet"],
+    ["troubleshoot",   "Troubleshoot sheet"],
+    ["chatReply",      "Chat Reply sheet"],
+    ["unassignment",   "Unassignment sheet"],
+    ["remainingFunds", "Remaining Funds sheet"],
+    ["callContext",    "Call Context sheet"],
+    ["dailyARR",       "Daily ARR sheet"],
+    ["experimental",   "Experimental Sellers sheet"],
+    ["revivalTrack",   "Revival Track sheet"],
+    ["mspRecovery",    "MSP Recovery sheet"],
+  ];
+  const settled = await Promise.allSettled(
+    FETCH_JOBS.map(([key, label]) => fetchOne(label, SHEETS[key]))
+  );
+  const R = {};
+  FETCH_JOBS.forEach(([key, label], idx) => { R[key] = { label, result: settled[idx] }; });
+
+  // Returns the fetched CSV text, or records the fetch error and returns null.
+  function take(key) {
+    const { label, result } = R[key];
+    if (result.status === "fulfilled") return result.value;
+    const msg = (result.reason && result.reason.message) || String(result.reason);
+    console.warn(label + " failed:", msg);
+    LAST_FETCH_ERRORS.push({ key, label, error: msg, fileId: SHEETS[key].fileId });
+    return null;
   }
+  // Parses an optional sheet. On fetch OR parse failure it records the error and
+  // returns the supplied fallback so the rest of the dashboard still renders.
+  function optional(key, parseFn, makeFallback) {
+    const { label, result } = R[key];
+    if (result.status === "fulfilled") {
+      try { return parseFn(result.value); }
+      catch (e) {
+        console.warn(label + " parse failed (non-fatal):", e.message);
+        LAST_FETCH_ERRORS.push({ key, label, error: e.message, fileId: SHEETS[key].fileId });
+        return makeFallback(e.message);
+      }
+    }
+    const msg = (result.reason && result.reason.message) || String(result.reason);
+    console.warn(label + " failed (non-fatal):", msg);
+    LAST_FETCH_ERRORS.push({ key, label, error: msg, fileId: SHEETS[key].fileId });
+    return makeFallback(msg);
+  }
+
+  // Hypercare Metrics is mandatory — without it the dashboard cannot be built.
+  const h = take("hypercare");
   if (!h) {
-    // Without the main sheet we can't build the dashboard at all — surface a
-    // diagnostic error to the caller so the UI can show a clear access issue.
     const err = new Error("Hypercare Metrics sheet unreadable. " + (LAST_FETCH_ERRORS[0] && LAST_FETCH_ERRORS[0].error || ""));
     err._diagnostic = true;
     throw err;
   }
-  setStatus("loading", "Fetching Calling sheet…");
-  let c = null;
-  try {
-    c = await fetchOne("Calling sheet", SHEETS.calling);
-  } catch (e) {
-    console.warn("Calling sheet failed (non-fatal):", e.message);
-    LAST_FETCH_ERRORS.push({ key: "calling", label: "Calling sheet", error: e.message, fileId: SHEETS.calling.fileId });
-    c = null;  // processCallingCSV will be skipped below
-  }
-  // Revived sheet is optional — if it fails, dashboard still works
-  setStatus("loading", "Fetching Revived sheet…");
-  let revived = null;
-  try {
-    const rText = await fetchOne("Revived sheet", SHEETS.revived);
-    revived = processRevivedCSV(rText);
-  } catch (e) {
-    console.warn("Revived sheet failed (non-fatal):", e.message);
-    LAST_FETCH_ERRORS.push({ key: "revived", label: "Revived sheet", error: e.message, fileId: SHEETS.revived.fileId });
-    revived = { rows: [], lifetime: 0, weekList: [], earliest: null, latest: null, headers: [], error: e.message };
-  }
-  // Tasks sheet — also optional
-  setStatus("loading", "Fetching Tasks sheet…");
-  let tasks = null;
-  try {
-    const tText = await fetchOne("Tasks sheet", SHEETS.tasks);
-    tasks = processTasksCSV(tText);
-  } catch (e) {
-    console.warn("Tasks sheet failed (non-fatal):", e.message);
-    LAST_FETCH_ERRORS.push({ key: "tasks", label: "Tasks sheet", error: e.message, fileId: SHEETS.tasks.fileId });
-    tasks = { rows: [], count: 0, error: e.message };
-  }
-  // Troubleshoot compliance sheet — also optional
-  setStatus("loading", "Fetching Troubleshoot sheet…");
-  let troubleshoot = null;
-  try {
-    const tsText = await fetchOne("Troubleshoot sheet", SHEETS.troubleshoot);
-    troubleshoot = processTroubleshootCSV(tsText);
-  } catch (e) {
-    console.warn("Troubleshoot sheet failed (non-fatal):", e.message);
-    LAST_FETCH_ERRORS.push({ key: "troubleshoot", label: "Troubleshoot sheet", error: e.message, fileId: SHEETS.troubleshoot.fileId });
-    troubleshoot = { rows: [], count: 0, error: e.message };
-  }
-  // Chat Reply sheet — also optional
-  setStatus("loading", "Fetching Chat Reply sheet…");
-  let chatReply = null;
-  try {
-    const crText = await fetchOne("Chat Reply sheet", SHEETS.chatReply);
-    chatReply = processChatReplyCSV(crText);
-  } catch (e) {
-    console.warn("Chat Reply sheet failed (non-fatal):", e.message);
-    LAST_FETCH_ERRORS.push({ key: "chatReply", label: "Chat Reply sheet", error: e.message, fileId: SHEETS.chatReply.fileId });
-    chatReply = { bySeller: {}, count: 0, error: e.message };
-  }
-  // Unassignment Flow sheet — also optional
-  setStatus("loading", "Fetching Unassignment sheet…");
-  let unassignment = null;
-  try {
-    const uText = await fetchOne("Unassignment sheet", SHEETS.unassignment);
-    unassignment = processUnassignmentCSV(uText);
-  } catch (e) {
-    console.warn("Unassignment sheet failed (non-fatal):", e.message);
-    LAST_FETCH_ERRORS.push({ key: "unassignment", label: "Unassignment sheet", error: e.message, fileId: SHEETS.unassignment.fileId });
-    unassignment = { rows: [], count: 0, error: e.message };
-  }
-  // Remaining Funds sheet — also optional
-  setStatus("loading", "Fetching Remaining Funds sheet…");
-  let remainingFunds = null;
-  try {
-    const rfText = await fetchOne("Remaining Funds sheet", SHEETS.remainingFunds);
-    remainingFunds = processRemainingFundsCSV(rfText);
-  } catch (e) {
-    console.warn("Remaining Funds sheet failed (non-fatal):", e.message);
-    LAST_FETCH_ERRORS.push({ key: "remainingFunds", label: "Remaining Funds sheet", error: e.message, fileId: SHEETS.remainingFunds.fileId });
-    remainingFunds = { bySeller: {}, count: 0, error: e.message };
-  }
-  // Call Context Summary Dump — also optional
-  setStatus("loading", "Fetching Call Context sheet…");
-  let callContext = null;
-  try {
-    const ccText = await fetchOne("Call Context sheet", SHEETS.callContext);
-    callContext = processCallContextCSV(ccText);
-  } catch (e) {
-    console.warn("Call Context sheet failed (non-fatal):", e.message);
-    LAST_FETCH_ERRORS.push({ key: "callContext", label: "Call Context sheet", error: e.message, fileId: SHEETS.callContext.fileId });
-    callContext = { rows: [], count: 0, error: e.message };
-  }
-  // Daily ARR sheet — also optional
-  setStatus("loading", "Fetching Daily ARR sheet…");
-  let dailyARR = null;
-  try {
-    const arrText = await fetchOne("Daily ARR sheet", SHEETS.dailyARR);
-    dailyARR = processDailyARRCSV(arrText);
-  } catch (e) {
-    console.warn("Daily ARR sheet failed (non-fatal):", e.message);
-    LAST_FETCH_ERRORS.push({ key: "dailyARR", label: "Daily ARR sheet", error: e.message, fileId: SHEETS.dailyARR.fileId });
-    dailyARR = { bySeller: {}, count: 0, error: e.message };
-  }
-  // Experimental Sellers sheet — also optional
-  setStatus("loading", "Fetching Experimental Sellers sheet…");
-  let experimental = null;
-  try {
-    const exText = await fetchOne("Experimental Sellers sheet", SHEETS.experimental);
-    experimental = processExperimentalCSV(exText);
-  } catch (e) {
-    console.warn("Experimental Sellers sheet failed (non-fatal):", e.message);
-    LAST_FETCH_ERRORS.push({ key: "experimental", label: "Experimental Sellers sheet", error: e.message, fileId: SHEETS.experimental.fileId });
-    experimental = { sellerSet: new Set(), count: 0, error: e.message };
-  }
-  // Revival Track + Unassignment tab — also optional
-  setStatus("loading", "Fetching Revival Track sheet…");
-  let revivalTrack = null;
-  try {
-    const rtText = await fetchOne("Revival Track sheet", SHEETS.revivalTrack);
-    revivalTrack = processRevivalTrackCSV(rtText);
-  } catch (e) {
-    console.warn("Revival Track sheet failed (non-fatal):", e.message);
-    LAST_FETCH_ERRORS.push({ key: "revivalTrack", label: "Revival Track sheet", error: e.message, fileId: SHEETS.revivalTrack.fileId });
-    revivalTrack = { rows: [], count: 0, error: e.message };
-  }
-  // MSP Recovery (Seller → GL/GM mapping) — also optional
-  setStatus("loading", "Fetching MSP Recovery sheet…");
-  let mspRecovery = null;
-  try {
-    const msText = await fetchOne("MSP Recovery sheet", SHEETS.mspRecovery);
-    mspRecovery = processMSPRecoveryCSV(msText);
-  } catch (e) {
-    console.warn("MSP Recovery sheet failed (non-fatal):", e.message);
-    LAST_FETCH_ERRORS.push({ key: "mspRecovery", label: "MSP Recovery sheet", error: e.message, fileId: SHEETS.mspRecovery.fileId });
-    mspRecovery = { bySeller: {}, gms: [], gls: [], count: 0, error: e.message };
-  }
+  // Calling sheet is optional; its CSV is parsed further below (unchanged).
+  const c = take("calling");
+
+  const revived        = optional("revived",        processRevivedCSV,        (m) => ({ rows: [], lifetime: 0, weekList: [], earliest: null, latest: null, headers: [], error: m }));
+  const tasks          = optional("tasks",          processTasksCSV,          (m) => ({ rows: [], count: 0, error: m }));
+  const troubleshoot   = optional("troubleshoot",   processTroubleshootCSV,   (m) => ({ rows: [], count: 0, error: m }));
+  const chatReply      = optional("chatReply",      processChatReplyCSV,      (m) => ({ bySeller: {}, count: 0, error: m }));
+  const unassignment   = optional("unassignment",   processUnassignmentCSV,   (m) => ({ rows: [], count: 0, error: m }));
+  const remainingFunds = optional("remainingFunds", processRemainingFundsCSV, (m) => ({ bySeller: {}, count: 0, error: m }));
+  const callContext    = optional("callContext",    processCallContextCSV,    (m) => ({ rows: [], count: 0, error: m }));
+  const dailyARR       = optional("dailyARR",       processDailyARRCSV,       (m) => ({ bySeller: {}, count: 0, error: m }));
+  const experimental   = optional("experimental",   processExperimentalCSV,   (m) => ({ sellerSet: new Set(), count: 0, error: m }));
+  const revivalTrack   = optional("revivalTrack",   processRevivalTrackCSV,   (m) => ({ rows: [], count: 0, error: m }));
+  const mspRecovery    = optional("mspRecovery",    processMSPRecoveryCSV,    (m) => ({ bySeller: {}, gms: [], gls: [], count: 0, error: m }));
+
   setStatus("loading", "Parsing CSVs…");
   const hyp = processHypercareCSV(h);
   let calls;
