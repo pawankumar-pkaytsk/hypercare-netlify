@@ -1560,6 +1560,7 @@
     <button class="tab" data-team="Revival">Revival <span class="count" id="cnt-Revival">3</span></button>
     <button class="tab" data-team="Daily">Daily Report <span class="count" id="cnt-Daily">📊</span></button>
     <button class="tab" data-team="CallHistory">Call History <span class="count" id="cnt-CallHistory">🔍</span></button>
+    <button class="tab" data-team="HITSRecovery">HITS Recovery <span class="count" id="cnt-HITSRecovery">🎯</span></button>
   </div>
 
   <div id="view-Scaling" class="view">
@@ -1636,7 +1637,6 @@
       <span class="chip all on" data-gc="__all__">Select All</span>
       <span class="chip on" data-gc="Sejal Negi">Sejal Negi</span>
       <span class="chip on" data-gc="Aanchal Agrawal">Aanchal Agrawal</span>
-      <span class="chip on" data-gc="Faraz Pasha">Faraz Pasha</span>
       <span class="chip on" data-gc="Vishal Thapa">Vishal Thapa</span>
       <span class="chip on" data-gc="Debasish Das">Debasish Das</span>
     </div>
@@ -1649,6 +1649,8 @@
   <div id="view-Daily" class="view"></div>
 
   <div id="view-CallHistory" class="view"></div>
+
+  <div id="view-HITSRecovery" class="view"></div>
 
   <p class="footer-note">
     Bucket rules — &gt;-20: PNL W-1 &gt; -20 + Spend W-1 &gt; 3540 · Potential Hit: PNL ≥ 5 + Spend &gt; 3540 ·
@@ -1742,6 +1744,27 @@ const SHEETS = {
   experimental:   { fileId: "1dWdoWmhEwH5uCsgTe62GSmy8VjcRZ7DAneN3fFg7xTo",  tab: "experimental" },
   revivalTrack:   { fileId: "1BFlI-jHjbfg8SQpS6iCNgL4oT8hbECUjvRXF060hHbo",  tab: "Revival Track + Unassignment" },
   mspRecovery:    { fileId: "1L1I5Dh3t_LLgmr__1nENpszAa7FwktSOTrMNySlrk48",  tab: "Mapping" },
+  hitsMarchCohort:{ fileId: "1dcCIuu4kt9oSKjTx6rr4_nT3pDNcFDovhF-3A1_aAIo",  tab: "Active Sellers" },
+  hitsAprilCohort:{ fileId: "1pvQ4ewHIta4iqn3GCRFgGIQsKPLURaoY3mtShsm_7ms",  tab: "Dump" },
+  gcv3Dump:       { fileId: "1ayKSKlZa6J3ueFqco4XOnqog9X1VcA9fKm7D5wfRqf8",  tab: "Auto_Dump" },
+  dailyMetrics:   { fileId: "19W3KsIIWgp2Aw5h4DzXPMYpAYFrJ7FHA2zNC8ppb1E0",  tab: "MetricsTrack" },
+};
+// Healthy thresholds for actionable diagnosis — used by HITS Recovery views.
+// User-supplied (Jun 2026): Spend/GMV ≤ 15, RTO ≤ 25, COGS ≤ 35.
+// "high" = breach trigger that lights the flag for the worst-offending lever.
+const HITS_THRESHOLDS = {
+  cogs_healthy_pct:        35,
+  cogs_high_pct:           45,   // breach
+  rto_healthy_pct:         25,
+  rto_high_pct:            30,
+  cancellation_healthy_pct: 10,
+  cancellation_high_pct:   15,
+  spend_gmv_healthy_pct:   15,
+  spend_gmv_high_pct:      25,
+  marketing_min_weekly:    3000,
+  pnl_objective_min:       5,    // PNL > 5 in 2 consecutive weeks = objective
+  pnl_potential_min:       0,    // PNL > 0 in any week = potential
+  pnl_bucket_min:          -20,  // PNL > -20 in any week = bucket health
 };
 const SHEETS_FAILED_PLACEHOLDER = /^FILL_IN_/;
 // Optional convenience: persist file IDs to localStorage so you don't have to
@@ -1791,7 +1814,6 @@ const MKT_OWNER_PATTERNS = {
 const REV_OWNER_PATTERNS = {
   "Sejal Negi":      ["sejal"],
   "Aanchal Agrawal": ["aanchal"],
-  "Faraz Pasha":     ["faraz"],
   "Vishal Thapa":    ["vishal"],
   "Debasish Das":    ["debasish", "debashish"],
 };
@@ -1803,7 +1825,7 @@ const TS_DAYS_THRESHOLD = 7;
 const SPEND_THRESHOLD = 3540;
 const ACTIVE_DAYS = 45;
 const MKT_GCS = ["Aaruni Vaidya","Sadiya Rajgoli","Nikita S GC","Nishan Bandekar","Dev Vashisth"];
-const REV_GCS = ["Sejal Negi","Aanchal Agrawal","Faraz Pasha","Vishal Thapa","Debasish Das"];
+const REV_GCS = ["Sejal Negi","Aanchal Agrawal","Vishal Thapa","Debasish Das"];
 const SCA_GCS = ["Sankhajit Ghosh"];
 const SCA_OWNER_PATTERNS = {
   "Sankhajit Ghosh": ["sankhajit"],
@@ -1969,6 +1991,47 @@ function processHypercareCSV(text) {
   const header = rows[1].map(h => norm(h));
   const data = rows.slice(2);
 
+  // ----- Header-based column resolution -----
+  // Old hardcoded layout was: M=today_spend(12), N=yesterday_spend(13),
+  // O=last_spend_date(14), P=website_url(15). If the sheet has had columns
+  // inserted, these shift. Auto-locate them by header label instead.
+  function findCol(patterns, fallback) {
+    for (let i = 0; i < header.length; i++) {
+      const h = (header[i] || "").toLowerCase();
+      if (!h) continue;
+      for (const p of patterns) {
+        if (h.includes(p.toLowerCase())) return i;
+      }
+    }
+    return fallback;
+  }
+  const colSellerId  = findCol(["seller_id", "seller id"], 0);
+  const colSellerName= findCol(["seller_name", "seller name"], 1);
+  const colGc        = findCol(["growth_consultant", "crm_gc", "growth consultant", " gc ", " gc"], 2);
+  const colGm        = findCol(["growth_manager", "crm_gm", "growth manager", " gm ", " gm"], 3);
+  const colKae       = findCol(["crm_kae", "kae"], 5);
+  const colToday     = findCol(["today_spend", "today's spend", "today spend", "today"], 12);
+  const colYest      = findCol(["yesterday_spend", "yesterday's spend", "yesterday spend", "yesterday"], 13);
+  const colLastSpend = findCol(["last_spend_date", "last spend date", "last spend"], 14);
+  const colWebsite   = findCol(["website", "url", "store_link", "website_url"], 15);
+
+  // Print the header + resolved column indices to the console once per refresh
+  // so the user can verify what's actually being read from the sheet.
+  try {
+    console.log("[Hypercare] Header row:", header);
+    if (data && data[0]) console.log("[Hypercare] First data row:", data[0]);
+    console.log("[Hypercare] Resolved columns:", {
+      seller_id: colSellerId, header_seller_id: header[colSellerId],
+      gc: colGc, header_gc: header[colGc],
+      gm: colGm, header_gm: header[colGm],
+      kae: colKae, header_kae: header[colKae],
+      today: colToday, header_today: header[colToday],
+      yesterday: colYest, header_yesterday: header[colYest],
+      last_spend_date: colLastSpend, header_last_spend: header[colLastSpend],
+      website: colWebsite, header_website: header[colWebsite],
+    });
+  } catch (e) {}
+
   const weekCols = [6,7,8], spendCols = [9,10,11];
   const sortedW = [...weekCols].map(i => ({i, label: header[i]||""})).sort((a,b) => b.label.localeCompare(a.label));
   const sortedS = [...spendCols].map(i => ({i, label: header[i]||""})).sort((a,b) => b.label.localeCompare(a.label));
@@ -1980,40 +2043,55 @@ function processHypercareCSV(text) {
   const cutoff45 = new Date(today.getTime() - ACTIVE_DAYS * 86400000);
 
   const marketingSellers = [], revivalSellers = [], scalingSellers = [];
+  // Diagnostic counters — print at end so we can see which check is rejecting sellers.
+  const diag = { total_rows: 0, blank_sid: 0, mkt_gc_ok: 0, mkt_gm_ok: 0, mkt_kae_ok: 0, mkt_active45_ok: 0, mkt_all_ok: 0, rev: 0, sca: 0, sample_rejected: [] };
   for (const r of data) {
     if (!r || r.length < 14) continue;
-    const sid = norm(r[0]);
-    if (!sid) continue;
-    const gc = norm(r[2]);
-    const lastDate = parseDate(r[14]);
+    diag.total_rows++;
+    const sid = norm(r[colSellerId]);
+    if (!sid) { diag.blank_sid++; continue; }
+    const gc = norm(r[colGc]);
+    const lastDate = parseDate(r[colLastSpend]);
     const isActive45 = (lastDate !== null) && (lastDate >= cutoff45);
     const daysSince = lastDate ? daysBetween(lastDate, today) : null;
     const rec = {
       seller_id: sid,
-      seller_name: norm(r[1]),
+      seller_name: norm(r[colSellerName]),
       crm_gc: gc,
       gc_display: DISPLAY[gc] || gc,
-      crm_gm: norm(r[3]),
-      crm_kae: norm(r[5]),
+      crm_gm: norm(r[colGm]),
+      crm_kae: norm(r[colKae]),
       pnl_w20: num(r[W_CUR]), pnl_w19: num(r[W_PRV]), pnl_w18: num(r[W_OLD]),
       spend_w20: num(r[SP_CUR]), spend_w19: num(r[SP_PRV]), spend_w18: num(r[SP_OLD]),
-      today_spend: num(r[12]), yesterday_spend: num(r[13]),
-      last_spend_date: norm(r[14]),
+      today_spend: num(r[colToday]), yesterday_spend: num(r[colYest]),
+      last_spend_date: norm(r[colLastSpend]),
       last_spend_date_iso: lastDate ? localISODate(lastDate) : null,
       days_since_spend: daysSince,
       is_active_45d: isActive45,
-      website_url: norm(r[15] || ""),     // column P
+      website_url: norm(r[colWebsite] || ""),
     };
-    if (MKT_GCS.includes(gc) && rec.crm_gm === "Pawan Kumar" && rec.crm_kae !== "" && isActive45) {
+    const gcMatch = MKT_GCS.includes(gc);
+    const gmMatch = rec.crm_gm === "Pawan Kumar";
+    const kaeMatch = rec.crm_kae !== "";
+    if (gcMatch) diag.mkt_gc_ok++;
+    if (gcMatch && gmMatch) diag.mkt_gm_ok++;
+    if (gcMatch && gmMatch && kaeMatch) diag.mkt_kae_ok++;
+    if (gcMatch && gmMatch && kaeMatch && isActive45) diag.mkt_active45_ok++;
+    if (gcMatch && gmMatch && kaeMatch && isActive45) {
+      diag.mkt_all_ok++;
       marketingSellers.push(rec);
+    } else if (gcMatch && diag.sample_rejected.length < 5) {
+      // Capture a few rejected Marketing-GC rows for diagnosis
+      diag.sample_rejected.push({
+        seller_id: sid, gc, crm_gm: rec.crm_gm, crm_kae: rec.crm_kae,
+        last_spend_date: rec.last_spend_date, is_active_45d: isActive45,
+        why: !gmMatch ? "crm_gm !== Pawan Kumar" : !kaeMatch ? "crm_kae blank" : !isActive45 ? "not active 45d" : "?"
+      });
     }
-    if (REV_GCS.includes(gc)) {
-      revivalSellers.push(rec);
-    }
-    if (SCA_GCS.includes(gc) && isActive45) {
-      scalingSellers.push(rec);
-    }
+    if (REV_GCS.includes(gc)) { revivalSellers.push(rec); diag.rev++; }
+    if (SCA_GCS.includes(gc) && isActive45) { scalingSellers.push(rec); diag.sca++; }
   }
+  try { console.log("[Hypercare] Filter diagnostics:", diag); } catch (e) {}
   return { marketingSellers, revivalSellers, scalingSellers, weekLabels };
 }
 
@@ -2192,6 +2270,144 @@ function processDailyARRCSV(text) {
     bySeller[sid][dateKey] = { spend, arr };
   }
   return { bySeller, count: Object.keys(bySeller).length, date_range: [dateMin, dateMax] };
+}
+
+function processHITSCohortCSV(text, opts) {
+  // March cohort tracker — positional schema (from uploaded CSV):
+  //   A=seller_id, B=seller_name, C=ICP_score, D=status, E=GC, F=GM,
+  //   G=category, H=start_date (golive), I=last_spend_date,
+  //   J=total_marketing_spend, K=last_spend_since, L=pipeline
+  // ID-only mode (opts.idOnly = true) — only seller_id is read from column A;
+  // every other field stays empty and gets enriched at render time from MSP
+  // Recovery + Hypercare/Revival/Scaling seller pools.
+  opts = opts || {};
+  const idOnly = !!opts.idOnly;
+  const rows = parseCSV(text);
+  if (rows.length < 2) throw new Error("HITS Cohort CSV too short (" + rows.length + " rows)");
+  const bySeller = {};
+  const sellerIds = [];
+  const statusCounts = {}, gcCounts = {}, gmCounts = {}, categoryCounts = {};
+  for (let i = 1; i < rows.length; i++) {
+    const r = rows[i];
+    if (!r || r.length < 1) continue;
+    const sid = norm(r[0]);
+    if (!sid) continue;
+    if (idOnly) {
+      bySeller[sid] = {
+        seller_id:             sid,
+        seller_name:           "",
+        icp_score:             null,
+        status:                "",
+        gc:                    "",
+        gm:                    "",
+        category:              "",
+        start_date:            "",
+        last_spend_date:       "",
+        total_marketing_spend: null,
+        last_spend_since:      "",
+        pipeline:              "",
+      };
+      sellerIds.push(sid);
+      continue;
+    }
+    const status = norm(r[3] || "");
+    const gc = norm(r[4] || "");
+    const gm = norm(r[5] || "");
+    const cat = norm(r[6] || "");
+    bySeller[sid] = {
+      seller_id:        sid,
+      seller_name:      norm(r[1] || ""),
+      icp_score:        num(r[2]),
+      status:           status,
+      gc:               gc,
+      gm:               gm,
+      category:         cat,
+      start_date:       norm(r[7]  || ""),
+      last_spend_date:  norm(r[8]  || ""),
+      total_marketing_spend: num(r[9]),
+      last_spend_since: norm(r[10] || ""),
+      pipeline:         norm(r[11] || ""),
+    };
+    sellerIds.push(sid);
+    if (status) statusCounts[status] = (statusCounts[status] || 0) + 1;
+    if (gc)     gcCounts[gc]         = (gcCounts[gc]         || 0) + 1;
+    if (gm)     gmCounts[gm]         = (gmCounts[gm]         || 0) + 1;
+    if (cat)    categoryCounts[cat]  = (categoryCounts[cat]  || 0) + 1;
+  }
+  return { bySeller, sellerIds, count: sellerIds.length, statusCounts, gcCounts, gmCounts, categoryCounts };
+}
+
+function processGCV3DumpCSV(text) {
+  // GCV3 Dump — positional schema (per user spec):
+  //   B=seller_id, C=yearweek, G=AOV, H=cancellation, I=RTO%, J=NMV,
+  //   K=logistics_spend, L=marketing_spend, M=COGS, N=spend_gmv, R=PNL%
+  // Returns: bySeller[sid] = [{ yearweek, aov, cancellation, rto, nmv, logistics, marketing, cogs, spend_gmv, pnl }, ...]
+  const rows = parseCSV(text);
+  if (rows.length < 2) throw new Error("GCV3 Dump CSV too short (" + rows.length + " rows)");
+  const bySeller = {};
+  let dropped = 0;
+  for (let i = 1; i < rows.length; i++) {
+    const r = rows[i];
+    if (!r || r.length < 18) { dropped++; continue; }
+    const sid = norm(r[1]);
+    if (!sid) { dropped++; continue; }
+    const yearweek = norm(r[2]);
+    if (!yearweek) { dropped++; continue; }
+    const entry = {
+      yearweek,
+      aov:          num(r[6]),
+      cancellation: num(r[7]),
+      rto:          num(r[8]),
+      nmv:          num(r[9]),
+      logistics:    num(r[10]),
+      marketing:    num(r[11]),
+      cogs:         num(r[12]),
+      spend_gmv:    num(r[13]),
+      pnl:          num(r[17]),  // column R = index 17
+    };
+    if (!bySeller[sid]) bySeller[sid] = [];
+    bySeller[sid].push(entry);
+  }
+  // Sort each seller's weeks ascending so consecutive-week logic works
+  Object.keys(bySeller).forEach(sid => {
+    bySeller[sid].sort((a, b) => a.yearweek.localeCompare(b.yearweek));
+  });
+  return { bySeller, count: Object.keys(bySeller).length, dropped };
+}
+
+function processDailyMetricsCSV(text) {
+  // Daily Metrics Tracker — positional schema (per user spec):
+  //   A=seller_id, B=date, C=spend, F=CPM, G=CTR, H=orders, J=spend_gmv (weekly)
+  // Returns: bySeller[sid] = [{ date, date_iso, spend, cpm, ctr, orders, spend_gmv }, ...]
+  const rows = parseCSV(text);
+  if (rows.length < 2) throw new Error("Daily Metrics CSV too short (" + rows.length + " rows)");
+  const bySeller = {};
+  for (let i = 1; i < rows.length; i++) {
+    const r = rows[i];
+    if (!r || r.length < 2) continue;
+    const sid = norm(r[0]);
+    if (!sid) continue;
+    const d = parseDate(r[1]);
+    if (!d) continue;
+    const dateIso = localISODate(d);
+    const entry = {
+      date:      norm(r[1]),
+      date_iso:  dateIso,
+      ts:        d.getTime(),
+      spend:     num(r[2]),
+      cpm:       num(r[5]),
+      ctr:       num(r[6]),
+      orders:    num(r[7]),
+      spend_gmv: num(r[9]),
+    };
+    if (!bySeller[sid]) bySeller[sid] = [];
+    bySeller[sid].push(entry);
+  }
+  // Sort each seller's days ascending
+  Object.keys(bySeller).forEach(sid => {
+    bySeller[sid].sort((a, b) => a.ts - b.ts);
+  });
+  return { bySeller, count: Object.keys(bySeller).length };
 }
 
 function processMSPRecoveryCSV(text) {
@@ -2834,22 +3050,26 @@ async function fetchSheets() {
   setStatus("loading", "Fetching all sheets in parallel…");
 
   // Fire EVERY sheet request at once instead of awaiting them one by one.
-  // Total wait time becomes the slowest single sheet, not the sum of all 13
-  // sequential round-trips.
+  // Total wait time becomes the slowest single sheet, not the sum of all of
+  // the sequential round-trips.
   const FETCH_JOBS = [
-    ["hypercare",      "Hypercare Metrics"],
-    ["calling",        "Calling sheet"],
-    ["revived",        "Revived sheet"],
-    ["tasks",          "Tasks sheet"],
-    ["troubleshoot",   "Troubleshoot sheet"],
-    ["chatReply",      "Chat Reply sheet"],
-    ["unassignment",   "Unassignment sheet"],
-    ["remainingFunds", "Remaining Funds sheet"],
-    ["callContext",    "Call Context sheet"],
-    ["dailyARR",       "Daily ARR sheet"],
-    ["experimental",   "Experimental Sellers sheet"],
-    ["revivalTrack",   "Revival Track sheet"],
-    ["mspRecovery",    "MSP Recovery sheet"],
+    ["hypercare",       "Hypercare Metrics"],
+    ["calling",         "Calling sheet"],
+    ["revived",         "Revived sheet"],
+    ["tasks",           "Tasks sheet"],
+    ["troubleshoot",    "Troubleshoot sheet"],
+    ["chatReply",       "Chat Reply sheet"],
+    ["unassignment",    "Unassignment sheet"],
+    ["remainingFunds",  "Remaining Funds sheet"],
+    ["callContext",     "Call Context sheet"],
+    ["dailyARR",        "Daily ARR sheet"],
+    ["experimental",    "Experimental Sellers sheet"],
+    ["revivalTrack",    "Revival Track sheet"],
+    ["mspRecovery",     "MSP Recovery sheet"],
+    ["hitsMarchCohort", "HITS March Cohort sheet"],
+    ["hitsAprilCohort", "HITS April Cohort sheet"],
+    ["gcv3Dump",        "GCV3 Dump sheet"],
+    ["dailyMetrics",    "Daily Metrics sheet"],
   ];
   const settled = await Promise.allSettled(
     FETCH_JOBS.map(([key, label]) => fetchOne(label, SHEETS[key]))
@@ -2894,17 +3114,21 @@ async function fetchSheets() {
   // Calling sheet is optional; its CSV is parsed further below (unchanged).
   const c = take("calling");
 
-  const revived        = optional("revived",        processRevivedCSV,        (m) => ({ rows: [], lifetime: 0, weekList: [], earliest: null, latest: null, headers: [], error: m }));
-  const tasks          = optional("tasks",          processTasksCSV,          (m) => ({ rows: [], count: 0, error: m }));
-  const troubleshoot   = optional("troubleshoot",   processTroubleshootCSV,   (m) => ({ rows: [], count: 0, error: m }));
-  const chatReply      = optional("chatReply",      processChatReplyCSV,      (m) => ({ bySeller: {}, count: 0, error: m }));
-  const unassignment   = optional("unassignment",   processUnassignmentCSV,   (m) => ({ rows: [], count: 0, error: m }));
-  const remainingFunds = optional("remainingFunds", processRemainingFundsCSV, (m) => ({ bySeller: {}, count: 0, error: m }));
-  const callContext    = optional("callContext",    processCallContextCSV,    (m) => ({ rows: [], count: 0, error: m }));
-  const dailyARR       = optional("dailyARR",       processDailyARRCSV,       (m) => ({ bySeller: {}, count: 0, error: m }));
-  const experimental   = optional("experimental",   processExperimentalCSV,   (m) => ({ sellerSet: new Set(), count: 0, error: m }));
-  const revivalTrack   = optional("revivalTrack",   processRevivalTrackCSV,   (m) => ({ rows: [], count: 0, error: m }));
-  const mspRecovery    = optional("mspRecovery",    processMSPRecoveryCSV,    (m) => ({ bySeller: {}, gms: [], gls: [], count: 0, error: m }));
+  const revived         = optional("revived",         processRevivedCSV,         (m) => ({ rows: [], lifetime: 0, weekList: [], earliest: null, latest: null, headers: [], error: m }));
+  const tasks           = optional("tasks",           processTasksCSV,           (m) => ({ rows: [], count: 0, error: m }));
+  const troubleshoot    = optional("troubleshoot",    processTroubleshootCSV,    (m) => ({ rows: [], count: 0, error: m }));
+  const chatReply       = optional("chatReply",       processChatReplyCSV,       (m) => ({ bySeller: {}, count: 0, error: m }));
+  const unassignment    = optional("unassignment",    processUnassignmentCSV,    (m) => ({ rows: [], count: 0, error: m }));
+  const remainingFunds  = optional("remainingFunds",  processRemainingFundsCSV,  (m) => ({ bySeller: {}, count: 0, error: m }));
+  const callContext     = optional("callContext",     processCallContextCSV,     (m) => ({ rows: [], count: 0, error: m }));
+  const dailyARR        = optional("dailyARR",        processDailyARRCSV,        (m) => ({ bySeller: {}, count: 0, error: m }));
+  const experimental    = optional("experimental",    processExperimentalCSV,    (m) => ({ sellerSet: new Set(), count: 0, error: m }));
+  const revivalTrack    = optional("revivalTrack",    processRevivalTrackCSV,    (m) => ({ rows: [], count: 0, error: m }));
+  const mspRecovery     = optional("mspRecovery",     processMSPRecoveryCSV,     (m) => ({ bySeller: {}, gms: [], gls: [], count: 0, error: m }));
+  const hitsMarchCohort = optional("hitsMarchCohort", processHITSCohortCSV,      (m) => ({ bySeller: {}, sellerIds: [], count: 0, error: m }));
+  const hitsAprilCohort = optional("hitsAprilCohort", (t) => processHITSCohortCSV(t, { idOnly: true }), (m) => ({ bySeller: {}, sellerIds: [], count: 0, error: m }));
+  const gcv3Dump        = optional("gcv3Dump",        processGCV3DumpCSV,        (m) => ({ bySeller: {}, count: 0, error: m }));
+  const dailyMetrics    = optional("dailyMetrics",    processDailyMetricsCSV,    (m) => ({ bySeller: {}, count: 0, error: m }));
 
   setStatus("loading", "Parsing CSVs…");
   const hyp = processHypercareCSV(h);
@@ -2925,6 +3149,10 @@ async function fetchSheets() {
   data.experimental = experimental;
   data.revivalTrack = revivalTrack;
   data.mspRecovery = mspRecovery;
+  data.hitsMarchCohort = hitsMarchCohort;
+  data.hitsAprilCohort = hitsAprilCohort;
+  data.gcv3Dump = gcv3Dump;
+  data.dailyMetrics = dailyMetrics;
   return data;
 }
 async function refresh() {
@@ -4317,6 +4545,605 @@ function revRenderAll() {
   if (!REVIVAL) return;
   document.getElementById('cnt-Revival').textContent = REV_GCS.length;
   revRenderSellerView(); revRenderCallView(); revRenderTaskView(); revRenderEfficiencyView();
+}
+
+// ============================================================
+//                    HITS Recovery
+// ============================================================
+// State
+let hitsCohort = "march";  // "march" — others added when more cohort sheets exist
+let hitsView   = "overview"; // "overview" | "bucket" | "potential" | "objective" | "revive" | "attention"
+
+function _hitsCohortData() {
+  const p = (typeof CACHED_PAYLOAD !== 'undefined' && CACHED_PAYLOAD) ? CACHED_PAYLOAD : null;
+  if (!p) return null;
+  if (hitsCohort === "march") return p.hitsMarchCohort;
+  if (hitsCohort === "april") return p.hitsAprilCohort;
+  return null;
+}
+function _hitsPNLData() {
+  const p = (typeof CACHED_PAYLOAD !== 'undefined' && CACHED_PAYLOAD) ? CACHED_PAYLOAD : null;
+  return p && p.gcv3Dump ? p.gcv3Dump : null;
+}
+function _hitsDailyMetrics() {
+  const p = (typeof CACHED_PAYLOAD !== 'undefined' && CACHED_PAYLOAD) ? CACHED_PAYLOAD : null;
+  return p && p.dailyMetrics ? p.dailyMetrics : null;
+}
+function _isPaused(status) {
+  if (!status) return false;
+  return /paus/i.test(status);
+}
+function _isUnassigned(status) {
+  if (!status) return false;
+  return /unassign|not\s*assign/i.test(status);
+}
+
+// For each weekly entry, return whether marketing spend qualifies for bucket inclusion
+function _wkQualifies(wk) {
+  return wk && (wk.marketing || 0) >= HITS_THRESHOLDS.marketing_min_weekly;
+}
+
+// Categorize a seller based on their GCV3 weekly history. Returns
+//   { bucket: bool, potential: bool, objective: bool,
+//     near_objective_spend_gap: bool,         (PNL>5 in 2 consec weeks but mkt<3000 in either)
+//     near_objective_nonconsec: bool,         (PNL>5 in any 2 weeks but not consecutive, with mkt qualifying)
+//     bestPnl, bestPnlWeek, latestWeek,
+//     consecutiveProfitablePairs: [[wk_a, wk_b], ...] }
+function categorizeSellerByPNL(sid) {
+  const pnl = _hitsPNLData();
+  const rows = (pnl && pnl.bySeller && pnl.bySeller[sid]) || [];
+  const T = HITS_THRESHOLDS;
+  let bucket = false, potential = false, objective = false;
+  let near_objective_spend_gap = false;
+  let bestPnl = -Infinity, bestPnlWeek = null;
+  let latestWeek = null;
+  const consecPairs = [];
+  // For "PNL>5 in any 2 weeks" — count standalone qualifying-spend weeks with PNL>5
+  let weeksAbovePnl5_qualifying = 0;
+  const profitableWeekIdxs = [];   // indices in rows where PNL>5
+  for (let i = 0; i < rows.length; i++) {
+    const w = rows[i];
+    const v = w.pnl;
+    if (v == null) continue;
+    if (_wkQualifies(w)) {
+      if (v > bestPnl) { bestPnl = v; bestPnlWeek = w.yearweek; }
+      if (v > T.pnl_bucket_min)    bucket = true;
+      if (v > T.pnl_potential_min) potential = true;
+      if (v > T.pnl_objective_min) weeksAbovePnl5_qualifying++;
+      latestWeek = w;
+    }
+    if (v > T.pnl_objective_min) profitableWeekIdxs.push(i);
+    // Consecutive-week PNL>5 check (both weeks must qualify for spend → Objective)
+    if (i + 1 < rows.length) {
+      const nxt = rows[i + 1];
+      if (nxt.pnl != null && v > T.pnl_objective_min && nxt.pnl > T.pnl_objective_min) {
+        if (_wkQualifies(w) && _wkQualifies(nxt)) {
+          objective = true;
+          consecPairs.push([w.yearweek, nxt.yearweek]);
+        } else {
+          // Consecutive PNL>5 but at least one week had insufficient marketing spend
+          near_objective_spend_gap = true;
+        }
+      }
+    }
+  }
+  if (bestPnl === -Infinity) bestPnl = null;
+  // Non-consecutive: 2 or more qualifying-spend weeks with PNL>5, but no consecutive pair landed objective
+  const near_objective_nonconsec = !objective && weeksAbovePnl5_qualifying >= 2;
+  return {
+    bucket, potential, objective,
+    near_objective_spend_gap, near_objective_nonconsec,
+    bestPnl, bestPnlWeek, latestWeek,
+    consecutiveProfitablePairs: consecPairs,
+    weeks_above_pnl5_qualifying: weeksAbovePnl5_qualifying,
+  };
+}
+
+// "One lever from HIT" — best PNL is in striking distance of 5 AND at least one lever is breached.
+// If we fix the worst lever, the seller plausibly crosses into HIT territory.
+function oneLeverFromHIT(sid, bestPnl, diag) {
+  if (bestPnl == null) return false;
+  // Striking distance: PNL within 5 points of the objective threshold (so -5 to 5)
+  if (bestPnl < -5 || bestPnl >= HITS_THRESHOLDS.pnl_objective_min) return false;
+  if (!diag || !diag.breached || diag.breached.length === 0) return false;
+  return true;
+}
+
+// Diagnose the worst-offending lever for a seller (used for actionable column).
+// Looks at the most recent qualifying week. Returns the lever name and
+// suggested action, or null if no clear issue.
+function diagnoseSellerLever(sid) {
+  const pnl = _hitsPNLData();
+  const rows = (pnl && pnl.bySeller && pnl.bySeller[sid]) || [];
+  // Use the most recent week with marketing >= threshold; if none, fall back
+  // to most recent week with any marketing data.
+  let wk = null;
+  for (let i = rows.length - 1; i >= 0; i--) {
+    if (_wkQualifies(rows[i])) { wk = rows[i]; break; }
+  }
+  if (!wk) wk = rows[rows.length - 1] || null;
+  if (!wk) return null;
+
+  const T = HITS_THRESHOLDS;
+  // Compute lever "severity" = how far each metric is above its healthy threshold.
+  // Higher severity = more impactful to fix.
+  const levers = [];
+  // COGS — expressed as % of NMV (if NMV > 0). User threshold is on COGS%/GMV
+  // but sheet column may already be percent; treat the raw value as the percentage.
+  if (wk.cogs != null) {
+    const over = wk.cogs - T.cogs_healthy_pct;
+    levers.push({
+      lever: "COGS",
+      value: wk.cogs,
+      healthy: T.cogs_healthy_pct,
+      severity: over,
+      breached: wk.cogs > T.cogs_high_pct,
+      action: wk.cogs > T.cogs_high_pct
+        ? "Negotiate supply or reduce per-unit cost — COGS is " + Math.round(wk.cogs) + "% (target ≤ " + T.cogs_healthy_pct + "%)"
+        : "Watch COGS — at " + Math.round(wk.cogs) + "% it's above the healthy " + T.cogs_healthy_pct + "%",
+    });
+  }
+  if (wk.rto != null) {
+    const over = wk.rto - T.rto_healthy_pct;
+    levers.push({
+      lever: "RTO",
+      value: wk.rto,
+      healthy: T.rto_healthy_pct,
+      severity: over,
+      breached: wk.rto > T.rto_high_pct,
+      action: wk.rto > T.rto_high_pct
+        ? "Reduce RTO — at " + Math.round(wk.rto) + "% (target ≤ " + T.rto_healthy_pct + "%). Audit delivery, packaging, listings."
+        : "RTO at " + Math.round(wk.rto) + "% is above healthy " + T.rto_healthy_pct + "%",
+    });
+  }
+  if (wk.cancellation != null) {
+    const over = wk.cancellation - T.cancellation_healthy_pct;
+    levers.push({
+      lever: "Cancellation",
+      value: wk.cancellation,
+      healthy: T.cancellation_healthy_pct,
+      severity: over,
+      breached: wk.cancellation > T.cancellation_high_pct,
+      action: wk.cancellation > T.cancellation_high_pct
+        ? "Cut cancellations — at " + Math.round(wk.cancellation) + "% (target ≤ " + T.cancellation_healthy_pct + "%). Check payment friction, stock, listing accuracy."
+        : "Cancellations at " + Math.round(wk.cancellation) + "% above healthy",
+    });
+  }
+  if (wk.spend_gmv != null) {
+    const over = wk.spend_gmv - T.spend_gmv_healthy_pct;
+    levers.push({
+      lever: "Spend/GMV",
+      value: wk.spend_gmv,
+      healthy: T.spend_gmv_healthy_pct,
+      severity: over,
+      breached: wk.spend_gmv > T.spend_gmv_high_pct,
+      action: wk.spend_gmv > T.spend_gmv_high_pct
+        ? "Ad inefficient — Spend/GMV at " + Math.round(wk.spend_gmv) + "% (target ≤ " + T.spend_gmv_healthy_pct + "%). Audit creatives, targeting."
+        : "Spend/GMV at " + Math.round(wk.spend_gmv) + "% above healthy",
+    });
+  }
+  // Sort by severity descending. Pick the worst.
+  levers.sort((a, b) => b.severity - a.severity);
+  const worst = levers[0];
+  const breached = levers.filter(l => l.breached).map(l => l.lever);
+  if (!worst || worst.severity <= 0) {
+    // All within healthy bands — no diagnosis needed.
+    return { worst: null, action: "All metrics within healthy range — protect & scale", week: wk.yearweek, levers, breached };
+  }
+  return { worst: worst.lever, action: worst.action, week: wk.yearweek, levers, breached };
+}
+
+// Flag: "Potential Revive" — seller was paused/unassigned in the cohort sheet
+// BUT their GCV3 history shows they hit Potential (PNL > 0 with mkt > 3000)
+// at least once. These are leftover wins worth re-engaging.
+function isPotentialRevive(sid, cohortSeller) {
+  if (!cohortSeller) return false;
+  if (!_isPaused(cohortSeller.status) && !_isUnassigned(cohortSeller.status)) return false;
+  const cat = categorizeSellerByPNL(sid);
+  return cat.potential === true;
+}
+
+// IMMEDIATE ATTENTION: scans last few daily-metrics rows for regressions.
+// Returns an array of trigger labels (e.g., ["CPM rising 2d", "Orders dropping 3d"]).
+function dayOnDayTriggers(sid) {
+  const dm = _hitsDailyMetrics();
+  const rows = (dm && dm.bySeller && dm.bySeller[sid]) || [];
+  if (rows.length < 3) return [];
+  // Look at last 4 days. We need a 2+ day directional move for CPM/CTR/orders.
+  const tail = rows.slice(-4);
+  const trigs = [];
+
+  function rising(values) {
+    // strictly rising over consecutive days
+    let count = 1;
+    for (let i = 1; i < values.length; i++) {
+      if (values[i] != null && values[i-1] != null && values[i] > values[i-1]) count++;
+      else count = 1;
+    }
+    return count >= 2;
+  }
+  function falling(values) {
+    let count = 1;
+    for (let i = 1; i < values.length; i++) {
+      if (values[i] != null && values[i-1] != null && values[i] < values[i-1]) count++;
+      else count = 1;
+    }
+    return count >= 2;
+  }
+  const cpm    = tail.map(r => r.cpm);
+  const ctr    = tail.map(r => r.ctr);
+  const orders = tail.map(r => r.orders);
+  if (rising(cpm))     trigs.push("CPM rising");
+  if (falling(ctr))    trigs.push("CTR dropping");
+  if (falling(orders)) trigs.push("Orders dropping");
+
+  // Spend/GMV worse than last week's average — use this week vs. previous yearweek
+  // from GCV3 history if available
+  const pnl = _hitsPNLData();
+  const wRows = (pnl && pnl.bySeller && pnl.bySeller[sid]) || [];
+  if (wRows.length >= 1 && tail.length > 0) {
+    const lastWeekSpendGmv = wRows[wRows.length - 1].spend_gmv;
+    const currWeekSpendGmv = tail[tail.length - 1].spend_gmv;
+    if (lastWeekSpendGmv != null && currWeekSpendGmv != null && currWeekSpendGmv > lastWeekSpendGmv) {
+      trigs.push("Spend/GMV regressing vs last week");
+    }
+  }
+  return trigs;
+}
+
+// Look up missing seller fields from MSP Recovery + the existing Hypercare/Revival/Scaling
+// seller pools. Used to enrich ID-only cohorts (like April) and to fill any gaps
+// in cohorts that already have data (like March).
+function _enrichSellerFromOtherSheets(sid, cs) {
+  const payload = (typeof CACHED_PAYLOAD !== 'undefined' && CACHED_PAYLOAD) ? CACHED_PAYLOAD : null;
+  const msp = payload && payload.mspRecovery && payload.mspRecovery.bySeller && payload.mspRecovery.bySeller[sid];
+  let dashSeller = null;
+  if (DATA && DATA.sellers) dashSeller = DATA.sellers.find(s => s.seller_id === sid);
+  if (!dashSeller && REVIVAL && REVIVAL.sellers) dashSeller = REVIVAL.sellers.find(s => s.seller_id === sid);
+  if (!dashSeller && SCALING && SCALING.sellers) dashSeller = SCALING.sellers.find(s => s.seller_id === sid);
+  return {
+    seller_id:        sid,
+    seller_name:      cs.seller_name || (msp && msp.seller_name) || (dashSeller && dashSeller.seller_name) || "",
+    status:           cs.status || "",
+    gc:               cs.gc || (dashSeller && (dashSeller.gc_display || dashSeller.crm_gc)) || "",
+    gm:               cs.gm || (msp && msp.gm) || (dashSeller && dashSeller.crm_gm) || "",
+    category:         cs.category || "",
+    icp_score:        cs.icp_score,
+    start_date:       cs.start_date || "",
+    last_spend_date:  cs.last_spend_date || (dashSeller && dashSeller.last_spend_date) || "",
+    total_marketing_spend: (cs.total_marketing_spend != null) ? cs.total_marketing_spend : null,
+  };
+}
+
+// Build the per-seller diagnostic record used by every HITS Recovery view.
+function buildHITSSellerRows() {
+  const cohort = _hitsCohortData();
+  const payload = (typeof CACHED_PAYLOAD !== 'undefined' && CACHED_PAYLOAD) ? CACHED_PAYLOAD : null;
+  const fundsBy = (payload && payload.remainingFunds && payload.remainingFunds.bySeller) || {};
+  if (!cohort || !cohort.bySeller) return { rows: [], totals: {
+    total:0, bucket:0, potential:0, objective:0, revive:0, attention:0,
+    funnel:0, near_spend_gap:0, near_nonconsec:0, one_lever:0,
+    funds_addition_required:0, experimental:0,
+  }};
+  const rows = cohort.sellerIds.map(sid => {
+    const csRaw = cohort.bySeller[sid] || { seller_id: sid };
+    const cs = _enrichSellerFromOtherSheets(sid, csRaw);
+    const cat = categorizeSellerByPNL(sid);
+    const diag = diagnoseSellerLever(sid);
+    const triggers = dayOnDayTriggers(sid);
+    const revive = isPotentialRevive(sid, cs);
+    const oneLever = oneLeverFromHIT(sid, cat.bestPnl, diag);
+    // Funnel = anything that's NOT already an Objective but has a plausible path:
+    //   spend gap (consec PNL>5 but mkt<3000), or non-consecutive PNL>5 twice, or one-lever-away.
+    const funnel = !cat.objective && (cat.near_objective_spend_gap || cat.near_objective_nonconsec || oneLever);
+    // Funds remaining lookup (from existing Remaining Funds sheet)
+    const f = fundsBy[sid] || null;
+    const remaining_funds = f ? f.remaining_funds : null;
+    const account_type = f ? f.account_type : "";
+    const fundsAdditionRequired = /prepaid/i.test(account_type)
+      && remaining_funds !== null && remaining_funds !== undefined
+      && remaining_funds < 2000;
+    return {
+      seller_id: sid,
+      seller_name: cs.seller_name,
+      status: cs.status,
+      gc: cs.gc,
+      gm: cs.gm,
+      category: cs.category,
+      icp_score: cs.icp_score,
+      start_date: cs.start_date,
+      last_spend_date: cs.last_spend_date,
+      total_marketing_spend: cs.total_marketing_spend,
+      experimental: isExperimentalSeller(sid),
+      bucket: cat.bucket,
+      potential: cat.potential,
+      objective: cat.objective,
+      near_objective_spend_gap: cat.near_objective_spend_gap,
+      near_objective_nonconsec: cat.near_objective_nonconsec,
+      one_lever_from_hit: oneLever,
+      funnel: funnel,
+      best_pnl: cat.bestPnl,
+      best_pnl_week: cat.bestPnlWeek,
+      latest_week: cat.latestWeek,
+      consec_pairs: cat.consecutiveProfitablePairs || [],
+      potential_revive: revive,
+      worst_lever: diag ? diag.worst : null,
+      action:      diag ? diag.action : null,
+      breached:    diag ? diag.breached : [],
+      day_triggers: triggers,
+      needs_attention: triggers.length > 0,
+      // Funds
+      remaining_funds, account_type,
+      funds_addition_required: fundsAdditionRequired,
+    };
+  });
+  const totals = {
+    total:      rows.length,
+    bucket:     rows.filter(r => r.bucket).length,
+    potential:  rows.filter(r => r.potential).length,
+    objective:  rows.filter(r => r.objective).length,
+    revive:     rows.filter(r => r.potential_revive).length,
+    attention:  rows.filter(r => r.needs_attention).length,
+    experimental: rows.filter(r => r.experimental).length,
+    funnel:         rows.filter(r => r.funnel).length,
+    near_spend_gap: rows.filter(r => !r.objective && r.near_objective_spend_gap).length,
+    near_nonconsec: rows.filter(r => !r.objective && r.near_objective_nonconsec).length,
+    one_lever:      rows.filter(r => !r.objective && r.one_lever_from_hit).length,
+    funds_addition_required: rows.filter(r => r.funds_addition_required).length,
+  };
+  return { rows, totals };
+}
+
+function renderHITSRecovery() {
+  const host = document.getElementById('view-HITSRecovery');
+  if (!host) return;
+  const cohort = _hitsCohortData();
+  const pnl = _hitsPNLData();
+  const dm = _hitsDailyMetrics();
+  if (!cohort || cohort.error) {
+    const err = cohort && cohort.error ? `Cohort fetch failed: ${String(cohort.error).slice(0,160)}` : "Loading March cohort…";
+    host.innerHTML = `<div class="card"><h3>HITS Recovery <span class="pending-tag">COHORT</span></h3><div class="pending-card"><h4>${escHtml(err)}</h4></div></div>`;
+    return;
+  }
+  if (!pnl || pnl.error) {
+    const err = pnl && pnl.error ? `GCV3 Dump fetch failed: ${String(pnl.error).slice(0,160)}` : "Loading GCV3 weekly history…";
+    host.innerHTML = `<div class="card"><h3>HITS Recovery <span class="pending-tag">GCV3</span></h3><div class="pending-card"><h4>${escHtml(err)}</h4></div></div>`;
+    return;
+  }
+
+  const { rows, totals } = buildHITSSellerRows();
+  const TARGET_PROFITABLE = 60;
+
+  // ----- Funnel cards (Bucket → Potential → Objective → Target) -----
+  const pct = (a, b) => b > 0 ? Math.round((a / b) * 1000) / 10 : 0;
+  const funnel = `<div class="quad-grid" style="grid-template-columns:repeat(auto-fit,minmax(180px,1fr));">
+    <div class="quad-card">
+      <div class="quad-icon" aria-hidden="true">👥</div>
+      <div class="quad-label">Cohort Total</div>
+      <div class="quad-value">${fmtNum(totals.total)}</div>
+      <div class="quad-cta">${totals.experimental} experimental flagged</div>
+    </div>
+    <div class="quad-card hits-clickable" data-hits-view="bucket">
+      <div class="quad-icon" aria-hidden="true">🛡️</div>
+      <div class="quad-label">Bucket Health</div>
+      <div class="quad-value">${fmtNum(totals.bucket)}</div>
+      <div class="quad-cta">${pct(totals.bucket, totals.total)}% of cohort · PNL > -20</div>
+    </div>
+    <div class="quad-card hits-clickable" data-hits-view="potential">
+      <div class="quad-icon" aria-hidden="true">⚡</div>
+      <div class="quad-label">Potential</div>
+      <div class="quad-value">${fmtNum(totals.potential)}</div>
+      <div class="quad-cta">${pct(totals.potential, totals.total)}% of cohort · PNL > 0 once</div>
+    </div>
+    <div class="quad-card hits-clickable" data-hits-view="objective">
+      <div class="quad-icon" aria-hidden="true">🎯</div>
+      <div class="quad-label">Objective Hit ✓</div>
+      <div class="quad-value" style="color:var(--success);">${fmtNum(totals.objective)}</div>
+      <div class="quad-cta">Target: ${TARGET_PROFITABLE} · Gap: ${Math.max(0, TARGET_PROFITABLE - totals.objective)}</div>
+    </div>
+  </div>`;
+
+  const secondaryCards = `<div class="quad-grid" style="grid-template-columns:repeat(auto-fit,minmax(180px,1fr));margin-top:10px;">
+    <div class="quad-card hits-clickable" data-hits-view="funnel" style="border-color:rgba(99,102,241,0.40);">
+      <div class="quad-icon" aria-hidden="true">🌊</div>
+      <div class="quad-label">HITS Funnel</div>
+      <div class="quad-value" style="color:#a5b4fc;">${fmtNum(totals.funnel)}</div>
+      <div class="quad-cta">Near-objective: ${totals.near_spend_gap} spend-gap · ${totals.near_nonconsec} non-consec · ${totals.one_lever} one-lever</div>
+    </div>
+    <div class="quad-card hits-clickable" data-hits-view="revive">
+      <div class="quad-icon" aria-hidden="true">🔄</div>
+      <div class="quad-label">Potential Revive</div>
+      <div class="quad-value">${fmtNum(totals.revive)}</div>
+      <div class="quad-cta">Paused / unassigned but hit Potential before</div>
+    </div>
+    <div class="quad-card hits-clickable" data-hits-view="attention" style="border-color:rgba(248,113,113,0.40);">
+      <div class="quad-icon" aria-hidden="true">⚠️</div>
+      <div class="quad-label">Immediate Attention</div>
+      <div class="quad-value" style="color:var(--danger);">${fmtNum(totals.attention)}</div>
+      <div class="quad-cta">Day-on-day regression in CPM / CTR / Orders</div>
+    </div>
+    <div class="quad-card hits-clickable" data-hits-view="funds" style="border-color:rgba(251,191,36,0.40);">
+      <div class="quad-icon" aria-hidden="true">💳</div>
+      <div class="quad-label">Funds Addition Required</div>
+      <div class="quad-value" style="color:#fbbf24;">${fmtNum(totals.funds_addition_required)}</div>
+      <div class="quad-cta">Prepaid sellers with &lt; ₹2,000 remaining</div>
+    </div>
+  </div>`;
+
+  // ----- View tabs (which subset to render) -----
+  const VIEWS = [
+    { id: "overview",  label: "All Sellers" },
+    { id: "bucket",    label: "Bucket Health" },
+    { id: "potential", label: "Potential" },
+    { id: "objective", label: "Objective ✓" },
+    { id: "funnel",    label: "🌊 HITS Funnel" },
+    { id: "revive",    label: "Potential Revive" },
+    { id: "attention", label: "⚠ Immediate Attention" },
+    { id: "funds",     label: "💳 Funds Needed" },
+  ];
+  const subtabs = `<div class="subtabs" id="hits-subtabs">
+    ${VIEWS.map(v => `<button class="subtab${hitsView===v.id?' active':''}" data-hits-view="${v.id}">${escHtml(v.label)}</button>`).join('')}
+  </div>`;
+
+  // ----- Filter the seller rows for the current view -----
+  let view = rows;
+  if (hitsView === "bucket")    view = rows.filter(r => r.bucket && !r.objective);
+  if (hitsView === "potential") view = rows.filter(r => r.potential && !r.objective);
+  if (hitsView === "objective") view = rows.filter(r => r.objective);
+  if (hitsView === "funnel")    view = rows.filter(r => r.funnel);
+  if (hitsView === "revive")    view = rows.filter(r => r.potential_revive);
+  if (hitsView === "attention") view = rows.filter(r => r.needs_attention);
+  if (hitsView === "funds")     view = rows.filter(r => r.funds_addition_required);
+  // Sort by best_pnl descending (closest to profitability first)
+  view.sort((a, b) => (b.best_pnl ?? -999) - (a.best_pnl ?? -999));
+
+  // ----- Build table -----
+  const fmtPnlCell = v => v == null
+    ? '<span class="empty-cell">—</span>'
+    : `<span class="${v >= 5 ? 'pnl-pos' : (v >= 0 ? '' : 'pnl-neg')}" style="font-weight:600;">${Math.round(v*10)/10}%</span>`;
+
+  const tableRows = view.map(r => {
+    const flags = [];
+    if (r.objective)        flags.push(`<span class="ts-eligible">Objective ✓</span>`);
+    else if (r.potential)   flags.push(`<span class="ts-not-eligible" style="background:rgba(34,211,238,0.14);color:#67e8f9;border-color:rgba(34,211,238,0.30);">Potential</span>`);
+    else if (r.bucket)      flags.push(`<span class="ts-not-eligible" style="background:rgba(251,191,36,0.14);color:#fbbf24;border-color:rgba(251,191,36,0.30);">Bucket</span>`);
+    // HITS Funnel reason chips — granular, why this seller is in the funnel
+    if (r.funnel && !r.objective) {
+      if (r.near_objective_spend_gap) flags.push(`<span class="ts-not-eligible" style="background:rgba(99,102,241,0.18);color:#a5b4fc;border-color:rgba(99,102,241,0.34);">⏫ Spend Gap</span>`);
+      if (r.near_objective_nonconsec) flags.push(`<span class="ts-not-eligible" style="background:rgba(217,70,239,0.16);color:#f0abfc;border-color:rgba(217,70,239,0.30);">📅 Non-Consec</span>`);
+      if (r.one_lever_from_hit)       flags.push(`<span class="ts-not-eligible" style="background:rgba(34,211,238,0.16);color:#67e8f9;border-color:rgba(34,211,238,0.32);">🔧 1 Lever</span>`);
+    }
+    if (r.potential_revive)        flags.push(`<span class="ts-not-eligible" style="background:rgba(139,92,246,0.18);color:#c4b5fd;border-color:rgba(139,92,246,0.32);">Potential Revive</span>`);
+    if (r.needs_attention)         flags.push(`<span class="funds-flag" style="margin-top:0;">${r.day_triggers.length} alert${r.day_triggers.length===1?'':'s'}</span>`);
+    if (r.experimental)            flags.push(`<span class="exp-tag" style="margin-top:0;">Experimental</span>`);
+    // Funds cell — value + optional addition-required pill
+    const fundsKnown = (r.remaining_funds !== null && r.remaining_funds !== undefined);
+    const fundsVal = fundsKnown ? fmtNum(r.remaining_funds) : '<span class="empty-cell">—</span>';
+    const fundsColor = !fundsKnown ? '#475569'
+                       : (r.remaining_funds <= 0 ? '#b91c1c'
+                          : (r.remaining_funds < 1000 ? '#b45309' : '#047857'));
+    const fundsFlag = r.funds_addition_required
+      ? '<div><span class="funds-flag">Funds Addition Required</span></div>'
+      : '';
+    const acctType = r.account_type ? escHtml(r.account_type) : '<span class="empty-cell">—</span>';
+    // Action chip — also embed the lever breach details
+    let actionTip = "";
+    if (r.action) {
+      actionTip = r.action;
+      if (r.breached && r.breached.length) actionTip += "\n\nBreached levers: " + r.breached.join(", ");
+      if (r.day_triggers && r.day_triggers.length) actionTip += "\n\nDay-on-day alerts:\n• " + r.day_triggers.join("\n• ");
+      if (r.consec_pairs && r.consec_pairs.length) actionTip += "\n\nConsecutive profitable weeks: " + r.consec_pairs.map(p => p.join(" → ")).join("; ");
+    }
+    const actCell = r.action
+      ? `<span class="ts-action-trigger" tabindex="0">${r.worst_lever ? '🔧 ' + r.worst_lever : '✓'}<span class="ts-action-tip">${escHtml(actionTip)}</span></span>`
+      : '<span class="empty-cell">—</span>';
+    return `<tr>
+      ${sellerIdCell(r.seller_id)}
+      <td>${escHtml(r.seller_name) || '<span class="empty-cell">—</span>'}</td>
+      <td>${escHtml(r.status) || '<span class="empty-cell">—</span>'}</td>
+      <td class="gc">${escHtml(r.gc) || '<span class="empty-cell">—</span>'}</td>
+      <td>${escHtml(r.gm) || '<span class="empty-cell">—</span>'}</td>
+      <td>${escHtml(r.category) || '<span class="empty-cell">—</span>'}</td>
+      <td>${acctType}</td>
+      <td class="num" style="font-weight:600;color:${fundsColor};">${fundsVal}${fundsFlag}</td>
+      <td style="color:#475569;white-space:nowrap;">${fmtDDMMYY(r.last_spend_date) || escHtml(r.last_spend_date) || '<span class="empty-cell">—</span>'}</td>
+      <td class="num">${r.total_marketing_spend != null ? fmtNum(r.total_marketing_spend) : '<span class="empty-cell">—</span>'}</td>
+      <td class="num">${fmtPnlCell(r.best_pnl)}<br><span style="font-size:10px;color:var(--text-faint);">${escHtml(r.best_pnl_week || '')}</span></td>
+      <td>${flags.join(' ') || '<span class="empty-cell">—</span>'}</td>
+      <td>${actCell}</td>
+    </tr>`;
+  }).join('');
+
+  // ----- Compose -----
+  host.innerHTML = `
+    <div class="card" style="background:linear-gradient(135deg, rgba(99,102,241,0.10), rgba(34,211,238,0.04));">
+      <div style="display:flex;justify-content:space-between;align-items:flex-start;flex-wrap:wrap;gap:14px;">
+        <div>
+          <h3 style="margin:0;font-family:'Sora',sans-serif;font-size:18px;">🎯 HITS Recovery</h3>
+          <p style="margin:6px 0 0 0;font-size:12.5px;color:var(--text-soft);line-height:1.55;">
+            Drive sellers from cohort → Bucket → Potential → <b>Objective (PNL > 5 in 2 consecutive weeks with marketing > ₹3,000)</b>.
+            Target this cycle: <b>${TARGET_PROFITABLE} profitable sellers</b>. Current: <b style="color:var(--success);">${totals.objective}</b> · Gap: <b style="color:var(--danger);">${Math.max(0, TARGET_PROFITABLE - totals.objective)}</b>.
+          </p>
+        </div>
+        <div style="display:flex;align-items:center;gap:10px;">
+          <label class="dr-picker-label">Cohort</label>
+          <select id="hits-cohort" class="dr-select" style="min-width:240px;">
+            <option value="march"${hitsCohort==='march'?' selected':''}>March 2026 Golive cohort</option>
+            <option value="april"${hitsCohort==='april'?' selected':''}>April 2026 Golive cohort</option>
+            <option value="" disabled>— Jan/Feb/May (coming soon) —</option>
+          </select>
+        </div>
+      </div>
+    </div>
+    ${funnel}
+    ${secondaryCards}
+    <div class="card" style="margin-top:14px;">
+      <div style="display:flex;justify-content:space-between;align-items:flex-start;flex-wrap:wrap;gap:10px;margin-bottom:10px;">
+        ${subtabs}
+        <button type="button" class="drill-export" id="hits-export" title="Download this view as CSV">⇣ CSV</button>
+      </div>
+      <p style="color:var(--text-soft);font-size:12px;margin:0 0 10px 0;">
+        Showing <b>${view.length}</b> seller${view.length===1?'':'s'} · sorted by best historical PNL%. Hover the action chip to see the suggested fix; tap any threshold breach for detail.
+      </p>
+      <div class="tbl-wrap" style="max-height:64vh;">
+        <table class="t">
+          <thead><tr>
+            <th>Seller ID</th><th>Seller Name</th><th>Status</th>
+            <th>GC</th><th>GM</th><th>Category</th>
+            <th>Account Type</th><th class="num">Remaining Funds</th>
+            <th>Last Spend Date</th><th class="num">Total Mkt Spend</th>
+            <th class="num">Best PNL (week)</th>
+            <th>Flags</th><th>Action</th>
+          </tr></thead>
+          <tbody>${tableRows || `<tr><td colspan="13" style="text-align:center;color:#94a3b8;padding:20px;">No sellers in this view.</td></tr>`}</tbody>
+        </table>
+      </div>
+    </div>
+  `;
+
+  // Wire interactions
+  document.querySelectorAll('#hits-subtabs [data-hits-view]').forEach(b => {
+    b.onclick = () => { hitsView = b.dataset.hitsView; renderHITSRecovery(); };
+  });
+  host.querySelectorAll('.hits-clickable[data-hits-view]').forEach(c => {
+    c.onclick = () => { hitsView = c.dataset.hitsView; renderHITSRecovery(); };
+    c.style.cursor = 'pointer';
+  });
+  const cohortSel = document.getElementById('hits-cohort');
+  if (cohortSel) cohortSel.addEventListener('change', e => { hitsCohort = e.target.value || 'march'; renderHITSRecovery(); });
+  const exportBtn = document.getElementById('hits-export');
+  if (exportBtn) exportBtn.addEventListener('click', () => {
+    const exportRows = view.map(r => ({
+      "Seller ID": r.seller_id,
+      "Seller Name": r.seller_name,
+      "Status": r.status,
+      "GC": r.gc,
+      "GM": r.gm,
+      "Category": r.category,
+      "ICP Score": r.icp_score == null ? "" : r.icp_score,
+      "Account Type": r.account_type || "",
+      "Remaining Funds": r.remaining_funds == null ? "" : r.remaining_funds,
+      "Funds Addition Required": r.funds_addition_required ? "Yes" : "No",
+      "Last Spend Date": fmtDDMMYY(r.last_spend_date) || r.last_spend_date || "",
+      "Total Marketing Spend": r.total_marketing_spend == null ? "" : r.total_marketing_spend,
+      "Best PNL %": r.best_pnl == null ? "" : r.best_pnl,
+      "Best PNL Week": r.best_pnl_week || "",
+      "Bucket Health": r.bucket ? "Yes" : "No",
+      "Potential": r.potential ? "Yes" : "No",
+      "Objective Hit": r.objective ? "Yes" : "No",
+      "In HITS Funnel": r.funnel ? "Yes" : "No",
+      "Near-Obj: Spend Gap": r.near_objective_spend_gap ? "Yes" : "No",
+      "Near-Obj: Non-Consecutive": r.near_objective_nonconsec ? "Yes" : "No",
+      "One Lever from HIT": r.one_lever_from_hit ? "Yes" : "No",
+      "Potential Revive": r.potential_revive ? "Yes" : "No",
+      "Experimental": r.experimental ? "Yes" : "No",
+      "Worst Lever": r.worst_lever || "",
+      "Breached Levers": (r.breached || []).join("; "),
+      "Suggested Action": r.action || "",
+      "Day-on-Day Alerts": (r.day_triggers || []).join("; "),
+    }));
+    if (exportRows.length) exportRowsAsCSV(exportRows, `hits-recovery-${hitsCohort}-${hitsView}-${localISODate(new Date())}`);
+  });
 }
 
 // ============================================================
@@ -6110,7 +6937,7 @@ function weekSortKey(label) {
   return s;
 }
 // ---- Unassignment filter state ----
-const UNAS_ASSIGNEES = ["Aanchal Agrawal", "Faraz Pasha", "Sejal Negi", "Vishal Thapa", "Debasish Das"];
+const UNAS_ASSIGNEES = ["Aanchal Agrawal", "Sejal Negi", "Vishal Thapa", "Debasish Das"];
 let unasFilterMode = "week";        // "week" | "date"
 let unasWeekFrom = "__min__";       // sentinel = oldest in sheet
 let unasWeekTo   = "__max__";       // sentinel = newest in sheet
@@ -6701,11 +7528,12 @@ function exportUnassignmentCSV(rows, bucket, weekFilter) {
 document.querySelectorAll(".tabs .tab").forEach(btn => {
   btn.addEventListener("click", () => {
     document.querySelectorAll(".tabs .tab").forEach(b => b.classList.remove("active"));
-    document.querySelectorAll("#view-Scaling, #view-Marketing, #view-Unassignment, #view-Revival, #view-Daily, #view-CallHistory").forEach(v => v.classList.remove("active"));
+    document.querySelectorAll("#view-Scaling, #view-Marketing, #view-Unassignment, #view-Revival, #view-Daily, #view-CallHistory, #view-HITSRecovery").forEach(v => v.classList.remove("active"));
     btn.classList.add("active");
     document.getElementById(`view-${btn.dataset.team}`).classList.add("active");
     if (btn.dataset.team === "Daily") renderDailyReport();
     if (btn.dataset.team === "CallHistory") renderCallHistory();
+    if (btn.dataset.team === "HITSRecovery") renderHITSRecovery();
   });
 });
 document.querySelectorAll('#mkt-subtabs .subtab').forEach(btn => btn.addEventListener('click', () => {
