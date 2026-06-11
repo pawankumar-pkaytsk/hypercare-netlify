@@ -6020,8 +6020,8 @@ const CAMPAIGN_METRICS = [
 const CAMPAIGN_DEFAULT_DAYS = 30;
 // Per-host state. Marketing and Scaling each get their own copy.
 const _campaignState = {
-  mkt: { metric: "spend", days: CAMPAIGN_DEFAULT_DAYS, chart: null, miniCharts: [] },
-  sca: { metric: "spend", days: CAMPAIGN_DEFAULT_DAYS, chart: null, miniCharts: [] },
+  mkt: { metric: "spend", days: CAMPAIGN_DEFAULT_DAYS, selectedSeller: "__all__", chart: null, miniCharts: [] },
+  sca: { metric: "spend", days: CAMPAIGN_DEFAULT_DAYS, selectedSeller: "__all__", chart: null, miniCharts: [] },
 };
 
 function _linearRegressionSlope(values) {
@@ -6108,8 +6108,19 @@ function renderCampaignTrack(opts) {
     return;
   }
   const state = _campaignState[opts.statePrefix];
-  const sellers = opts.sellers || [];
+  const allSellers = opts.sellers || [];
   const days = state.days || CAMPAIGN_DEFAULT_DAYS;
+  // If the selected seller is no longer in scope (GC filter changed), reset to all
+  if (state.selectedSeller && state.selectedSeller !== "__all__" && !allSellers.some(s => s.seller_id === state.selectedSeller)) {
+    state.selectedSeller = "__all__";
+  }
+  // Resolve the active seller scope: either all-in-GC, or a single seller
+  let sellers = allSellers;
+  let singleSeller = null;
+  if (state.selectedSeller && state.selectedSeller !== "__all__") {
+    const found = allSellers.find(s => s.seller_id === state.selectedSeller);
+    if (found) { sellers = [found]; singleSeller = found; }
+  }
 
   // Destroy any previous chart instances to free memory
   if (state.chart) { try { state.chart.destroy(); } catch (e) {} state.chart = null; }
@@ -6123,10 +6134,29 @@ function renderCampaignTrack(opts) {
   </div>`;
 
   const dayOpts = [7, 15, 30, 60, 90].map(d => `<option value="${d}"${days===d?' selected':''}>Last ${d} days</option>`).join('');
+  // Build seller picker — sorted alphabetically by name for easier scanning
+  const sortedAll = [...allSellers].sort((a, b) => String(a.seller_name || a.seller_id).localeCompare(String(b.seller_name || b.seller_id)));
+  const sellerOptions = sortedAll.map(s => {
+    const label = `${s.seller_id} (${s.seller_name || '—'})`;
+    return `<option value="${escHtml(s.seller_id)}"${state.selectedSeller === s.seller_id ? ' selected' : ''}>${escHtml(label)}</option>`;
+  }).join('');
+  const sellerPickerHTML = `
+    <label style="font-size:12px;color:var(--text-soft);font-weight:600;margin-left:6px;">Seller:</label>
+    <select id="${opts.statePrefix}-camp-seller" class="dr-select" style="min-width:340px;max-width:420px;">
+      <option value="__all__"${state.selectedSeller === '__all__' ? ' selected' : ''}>All sellers (${allSellers.length})</option>
+      ${sellerOptions}
+    </select>
+    <input type="text" id="${opts.statePrefix}-camp-seller-search" placeholder="🔍 Search by seller ID…" value="${state.selectedSeller && state.selectedSeller !== '__all__' ? escHtml(state.selectedSeller) : ''}" style="padding:7px 12px;border:1px solid var(--border-strong);border-radius:8px;background:rgba(255,255,255,0.04);color:var(--text);font-size:12.5px;font-family:'JetBrains Mono',monospace;min-width:240px;">
+    ${state.selectedSeller && state.selectedSeller !== '__all__' ? `<button type="button" id="${opts.statePrefix}-camp-seller-clear" class="refresh-btn">✕ Clear seller</button>` : ''}
+  `;
+  const scopeNote = singleSeller
+    ? `Showing <b style="color:var(--text);">${escHtml(singleSeller.seller_id)}</b> · ${escHtml(singleSeller.seller_name || '—')}`
+    : `Source: Daily Metrics sheet · ${allSellers.length} seller${allSellers.length===1?'':'s'} in scope`;
   const filterHTML = `<div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-bottom:14px;">
     <label style="font-size:12px;color:var(--text-soft);font-weight:600;">Date range:</label>
     <select id="${opts.statePrefix}-camp-days" class="dr-select" style="min-width:160px;">${dayOpts}</select>
-    <span style="font-size:11px;color:#94a3b8;">Source: Daily Metrics sheet · ${sellers.length} seller${sellers.length===1?'':'s'} in scope</span>
+    ${sellerPickerHTML}
+    <span style="font-size:11px;color:#94a3b8;flex-basis:100%;">${scopeNote}</span>
   </div>`;
 
   let body = "";
@@ -6146,11 +6176,12 @@ function renderCampaignTrack(opts) {
       const aggSlope = _linearRegressionSlope(agg);
       const aggTrend = _classifyCampaignTrend(aggSlope, aggMean, m.goodDir);
       const canvasId = `${opts.statePrefix}-camp-mini-${m.id}`;
+      const meanLbl = singleSeller ? `${days}d Avg` : (useAvg ? 'Avg' : 'Total');
       return `<div class="camp-mini-card">
         <div class="camp-mini-header">
           <div>
             <div class="camp-mini-label">${escHtml(m.label)}</div>
-            <div class="camp-mini-mean">${useAvg ? 'Avg' : 'Total'}: <b>${_fmtMetric(aggMean, m.fmt)}</b></div>
+            <div class="camp-mini-mean">${meanLbl}: <b>${_fmtMetric(aggMean, m.fmt)}</b></div>
           </div>
           ${_trendBadge(aggTrend)}
         </div>
@@ -6180,7 +6211,7 @@ function renderCampaignTrack(opts) {
     });
     const counts = { improving: 0, stable: 0, worsening: 0 };
     mx.rows.forEach(r => { counts[r.trend]++; });
-    const summaryCards = `<div class="quad-grid" style="grid-template-columns:repeat(3,minmax(120px,1fr));margin-bottom:12px;">
+    const summaryCards = singleSeller ? "" : `<div class="quad-grid" style="grid-template-columns:repeat(3,minmax(120px,1fr));margin-bottom:12px;">
       <div class="quad-card" style="border-color:rgba(52,211,153,0.32);">
         <div class="quad-icon">📈</div><div class="quad-label">Improving</div>
         <div class="quad-value" style="color:var(--success);">${counts.improving}</div>
@@ -6209,15 +6240,19 @@ function renderCampaignTrack(opts) {
       </tr>`;
     }).join('');
 
+    const chartTitle = singleSeller
+      ? `${escHtml(m.label)} · Daily values for ${escHtml(singleSeller.seller_id)} <span class="src-tag">${escHtml(singleSeller.seller_name || '—')}</span>`
+      : `${escHtml(m.label)} · Daily trend across ${sellers.length} seller${sellers.length===1?'':'s'} <span class="src-tag">${useAvg ? 'Avg' : 'Total'} per day</span>`;
+    const tableTitle = singleSeller ? "Seller summary" : "Per-Seller breakdown";
     body = `${summaryCards}
       <div class="card" style="margin-bottom:14px;">
-        <h3>${escHtml(m.label)} · Daily trend across ${sellers.length} seller${sellers.length===1?'':'s'} <span class="src-tag">${useAvg ? 'Avg' : 'Total'} per day</span></h3>
+        <h3>${chartTitle}</h3>
         <div style="position:relative;height:280px;width:100%;">
           <canvas id="${chartCanvasId}" data-iso='${JSON.stringify(mx.dateIsos)}' data-vals='${JSON.stringify(agg)}' data-color="${m.color}" data-label="${escHtml(m.label)}"></canvas>
         </div>
       </div>
       <div class="card">
-        <h3>Per-Seller breakdown</h3>
+        <h3>${tableTitle}</h3>
         <div class="tbl-wrap" style="max-height:60vh;">
           <table class="t">
             <thead><tr>
@@ -6225,7 +6260,7 @@ function renderCampaignTrack(opts) {
               <th class="num">Latest</th><th class="num">${days}d Avg</th>
               <th style="text-align:left;">Suggestion</th>
             </tr></thead>
-            <tbody>${tableRows || `<tr><td colspan="6" style="text-align:center;color:#94a3b8;padding:20px;">No daily-metrics data for these sellers in the last ${days} days.</td></tr>`}</tbody>
+            <tbody>${tableRows || `<tr><td colspan="6" style="text-align:center;color:#94a3b8;padding:20px;">No daily-metrics data for ${singleSeller ? 'this seller' : 'these sellers'} in the last ${days} days.</td></tr>`}</tbody>
           </table>
         </div>
       </div>`;
@@ -6247,6 +6282,35 @@ function renderCampaignTrack(opts) {
   });
   const daysSel = document.getElementById(opts.statePrefix + '-camp-days');
   if (daysSel) daysSel.addEventListener('change', e => { state.days = parseInt(e.target.value, 10) || CAMPAIGN_DEFAULT_DAYS; renderCampaignTrack(opts); });
+  // Seller dropdown
+  const sellerSel = document.getElementById(opts.statePrefix + '-camp-seller');
+  if (sellerSel) sellerSel.addEventListener('change', e => {
+    state.selectedSeller = e.target.value || "__all__";
+    renderCampaignTrack(opts);
+  });
+  // Seller-ID search box — commit on Enter or blur
+  const sellerSearch = document.getElementById(opts.statePrefix + '-camp-seller-search');
+  if (sellerSearch) {
+    const apply = () => {
+      const raw = (sellerSearch.value || "").trim();
+      if (!raw) { state.selectedSeller = "__all__"; renderCampaignTrack(opts); return; }
+      // Exact-match first, then case-insensitive partial
+      let hit = allSellers.find(s => s.seller_id === raw);
+      if (!hit) {
+        const lc = raw.toLowerCase();
+        hit = allSellers.find(s => String(s.seller_id || '').toLowerCase().includes(lc));
+      }
+      if (hit) { state.selectedSeller = hit.seller_id; renderCampaignTrack(opts); }
+      else { sellerSearch.style.borderColor = "var(--danger)"; sellerSearch.title = "No seller in scope matches that ID"; }
+    };
+    sellerSearch.addEventListener('keydown', e => { if (e.key === 'Enter') { e.preventDefault(); apply(); } });
+    sellerSearch.addEventListener('blur', apply);
+  }
+  // Clear-seller button
+  const sellerClear = document.getElementById(opts.statePrefix + '-camp-seller-clear');
+  if (sellerClear) sellerClear.addEventListener('click', () => {
+    state.selectedSeller = "__all__"; renderCampaignTrack(opts);
+  });
 
   // Build charts
   if (typeof Chart !== 'undefined') {
