@@ -532,38 +532,95 @@
     opacity: 0; pointer-events: none; visibility: hidden;
     position: absolute; top: 100%; left: 50%; transform: translate(-50%, -4px);
     margin-top: 10px; z-index: 100;
-    min-width: 260px; max-width: 420px; padding: 12px 14px;
-    background: rgba(14, 20, 38, 0.96);
-    color: var(--text);
+    min-width: 280px; max-width: 460px; padding: 28px 16px 14px 16px;
+    /* Fully opaque solid background — no blur — readable over any chip behind it */
+    background: #0e1428;
+    color: #f1f5fb;
     border-radius: 12px;
-    border: 1px solid rgba(139,92,246,0.40);
-    backdrop-filter: blur(18px);
-    -webkit-backdrop-filter: blur(18px);
-    box-shadow: var(--shadow-xl), 0 0 0 1px rgba(139,92,246,0.18), 0 0 32px -8px rgba(99,102,241,0.45);
-    font-size: 12px; font-weight: 400; line-height: 1.55;
+    border: 1px solid rgba(139,92,246,0.55);
+    box-shadow: 0 24px 64px -16px rgba(0,0,0,.85), 0 8px 24px -4px rgba(0,0,0,.55), 0 0 0 1px rgba(139,92,246,0.25), 0 0 36px -8px rgba(99,102,241,0.55);
+    font-size: 12.5px; font-weight: 400; line-height: 1.55;
     white-space: pre-wrap; word-break: break-word;
     text-align: left;
+    /* Allow text selection / copy */
+    user-select: text; -webkit-user-select: text; cursor: text;
     transition: opacity var(--t-fast) var(--ease), transform var(--t-fast) var(--ease), visibility 0s linear var(--t-fast);
   }
   :root[data-theme="light"] .ts-action-tip {
-    background: rgba(255,255,255,0.98);
-    color: var(--text);
-    border-color: rgba(79,70,229,0.30);
-    box-shadow: var(--shadow-xl), 0 0 0 1px rgba(79,70,229,0.16), 0 0 32px -8px rgba(79,70,229,0.30);
+    background: #ffffff;
+    color: #0f172a;
+    border-color: rgba(79,70,229,0.40);
+    box-shadow: 0 24px 64px -16px rgba(15,23,42,.45), 0 8px 24px -4px rgba(15,23,42,.20), 0 0 0 1px rgba(79,70,229,0.22);
   }
   /* Floating popup arrow */
   .ts-action-tip::before {
     content: ""; position: absolute; top: -6px; left: 50%; transform: translateX(-50%) rotate(45deg);
     width: 10px; height: 10px;
-    background: rgba(14, 20, 38, 0.96);
-    border-left: 1px solid rgba(139,92,246,0.40);
-    border-top: 1px solid rgba(139,92,246,0.40);
+    background: #0e1428;
+    border-left: 1px solid rgba(139,92,246,0.55);
+    border-top: 1px solid rgba(139,92,246,0.55);
   }
   :root[data-theme="light"] .ts-action-tip::before {
-    background: rgba(255,255,255,0.98);
-    border-left-color: rgba(79,70,229,0.30);
-    border-top-color: rgba(79,70,229,0.30);
+    background: #ffffff;
+    border-left-color: rgba(79,70,229,0.40);
+    border-top-color: rgba(79,70,229,0.40);
   }
+  /* Copy button in the top-right of every tip */
+  .ts-action-tip .ts-tip-copy {
+    position: absolute; top: 6px; right: 6px;
+    display: inline-flex; align-items: center; gap: 4px;
+    padding: 3px 9px; border-radius: 7px;
+    background: rgba(99,102,241,0.18); color: #c7d2fe;
+    border: 1px solid rgba(139,92,246,0.40);
+    font-family: "Inter", sans-serif;
+    font-size: 10.5px; font-weight: 600; letter-spacing: 0.02em;
+    cursor: pointer; user-select: none;
+    transition: background var(--t-fast) var(--ease), color var(--t-fast) var(--ease), border-color var(--t-fast) var(--ease);
+  }
+  :root[data-theme="light"] .ts-action-tip .ts-tip-copy {
+    background: rgba(79,70,229,0.12); color: #4338ca; border-color: rgba(79,70,229,0.40);
+  }
+  .ts-action-tip .ts-tip-copy:hover {
+    background: rgba(99,102,241,0.32); color: #ffffff; border-color: var(--brand);
+  }
+  :root[data-theme="light"] .ts-action-tip .ts-tip-copy:hover {
+    background: rgba(79,70,229,0.20); color: var(--brand-strong);
+  }
+  .ts-action-tip .ts-tip-copy.done { background: rgba(52,211,153,0.22); color: #6ee7b7; border-color: rgba(52,211,153,0.50); }
+  :root[data-theme="light"] .ts-action-tip .ts-tip-copy.done { background: rgba(5,150,105,0.16); color: #047857; border-color: rgba(5,150,105,0.50); }
+  /* Campaign Track styling */
+  .trend-tag {
+    display: inline-block; padding: 3px 9px; border-radius: 999px;
+    font-size: 11px; font-weight: 700; letter-spacing: 0.02em;
+    border: 1px solid transparent; white-space: nowrap;
+  }
+  .trend-improving { background: rgba(52,211,153,0.16); color: var(--success); border-color: rgba(52,211,153,0.40); }
+  .trend-stable    { background: rgba(255,255,255,0.06); color: var(--text-soft); border-color: rgba(255,255,255,0.18); }
+  .trend-worsening { background: rgba(248,113,113,0.16); color: var(--danger);  border-color: rgba(248,113,113,0.40); }
+  :root[data-theme="light"] .trend-stable { background: rgba(15,23,42,0.06); color: #475569; border-color: rgba(15,23,42,0.16); }
+  .camp-mini-grid {
+    display: grid; gap: 14px;
+    grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+  }
+  .camp-mini-card {
+    background: linear-gradient(135deg, rgba(99,102,241,0.10), rgba(34,211,238,0.04));
+    border: 1px solid rgba(255,255,255,0.10);
+    border-radius: 14px; padding: 14px 16px 12px 16px;
+    backdrop-filter: blur(8px);
+  }
+  :root[data-theme="light"] .camp-mini-card {
+    background: linear-gradient(135deg, rgba(79,70,229,0.06), rgba(8,145,178,0.04));
+    border-color: rgba(79,70,229,0.16);
+  }
+  .camp-mini-header { display: flex; justify-content: space-between; align-items: flex-start; gap: 10px; margin-bottom: 8px; }
+  .camp-mini-label  { font-family: 'Sora', sans-serif; font-weight: 700; font-size: 14px; color: var(--text); }
+  .camp-mini-mean   { font-size: 11px; color: var(--text-soft); margin-top: 2px; }
+  .camp-mini-mean b { color: var(--text); font-weight: 700; }
+  .camp-mini-suggestion {
+    font-size: 11.5px; color: var(--text-muted); line-height: 1.45;
+    margin-top: 8px; padding-top: 8px; border-top: 1px dashed rgba(255,255,255,0.08);
+  }
+  :root[data-theme="light"] .camp-mini-suggestion { border-top-color: rgba(15,23,42,0.12); }
   /* CLICK-TO-OPEN: only show when .open class is applied (no longer hover-driven) */
   .ts-action-trigger.open .ts-action-tip {
     opacity: 1; pointer-events: auto; visibility: visible; transform: translate(-50%, 0);
@@ -1585,12 +1642,6 @@
     </div>
   </header>
 
-  <div class="source-banner">
-    <strong>📊 Live sources:</strong>
-    <a href="https://docs.google.com/spreadsheets/d/1Aqv29misVtWdWhoYzFGVgFQDkawKycGG5zj18Y0mRNI/edit" target="_blank">Hypercare Metrics</a> +
-    <a href="https://docs.google.com/spreadsheets/d/1t0Hm0dzDbjNSLVVbLLsF8jXb2BWs0Dxk7iPBz7yUM1g/edit" target="_blank">Calling sheet</a>
-    · Refetched automatically every hour; cached in your browser between refreshes.
-  </div>
   <div id="fetch-errors-banner" style="display:none;"></div>
 
   <div class="tabs" role="tablist">
@@ -1613,6 +1664,7 @@
       <button class="subtab" data-sub="sca-escalation">Escalation Compliance</button>
       <button class="subtab" data-sub="sca-arr">ARR View</button>
       <button class="subtab" data-sub="sca-arrrec">ARR Recovery</button>
+      <button class="subtab" data-sub="sca-camp">📡 Campaign Track</button>
     </div>
     <div class="filter-bar" id="sca-filter">
       <span class="lbl">Filter by GC:</span>
@@ -1633,6 +1685,7 @@
       </div>
       <div id="arr-rec-body"></div>
     </div>
+    <div id="sub-sca-camp"       class="subview"></div>
   </div>
 
   <div id="view-Marketing" class="view active">
@@ -1642,6 +1695,7 @@
       <button class="subtab" data-sub="call">Call View</button>
       <button class="subtab" data-sub="task">Task View</button>
       <button class="subtab" data-sub="trouble">Troubleshoot Compliance</button>
+      <button class="subtab" data-sub="camp">📡 Campaign Track</button>
       <button class="subtab" data-sub="escalation">Escalation Compliance</button>
       <button class="subtab" data-sub="revcomp">Revival Compliance</button>
     </div>
@@ -1659,6 +1713,7 @@
     <div id="sub-call"       class="subview"></div>
     <div id="sub-task"       class="subview"></div>
     <div id="sub-trouble"    class="subview"></div>
+    <div id="sub-camp"       class="subview"></div>
     <div id="sub-escalation" class="subview"></div>
     <div id="sub-revcomp"    class="subview"></div>
   </div>
@@ -1764,17 +1819,60 @@ applyChartTheme();
       if (el !== except) el.classList.remove('open');
     });
   }
+  // Inject a small Copy button into the tip on first open if missing
+  function ensureCopyBtn(trigger) {
+    const tip = trigger.querySelector('.ts-action-tip');
+    if (!tip || tip.querySelector('.ts-tip-copy')) return;
+    const btn = document.createElement('button');
+    btn.type = 'button';
+    btn.className = 'ts-tip-copy';
+    btn.textContent = '⧉ Copy';
+    btn.addEventListener('click', (ev) => {
+      ev.stopPropagation();
+      ev.preventDefault();
+      // Get plain-text content of the tip excluding the button itself
+      const clone = tip.cloneNode(true);
+      const cloneBtn = clone.querySelector('.ts-tip-copy');
+      if (cloneBtn) cloneBtn.remove();
+      const text = clone.innerText.trim();
+      const writeText = navigator.clipboard && navigator.clipboard.writeText
+        ? navigator.clipboard.writeText(text)
+        : new Promise((resolve, reject) => {
+            try {
+              const ta = document.createElement('textarea');
+              ta.value = text; ta.style.position = 'fixed'; ta.style.opacity = '0';
+              document.body.appendChild(ta); ta.select();
+              document.execCommand('copy');
+              document.body.removeChild(ta);
+              resolve();
+            } catch (e) { reject(e); }
+          });
+      writeText.then(() => {
+        btn.textContent = '✓ Copied';
+        btn.classList.add('done');
+        setTimeout(() => { btn.textContent = '⧉ Copy'; btn.classList.remove('done'); }, 1500);
+      }).catch(() => {
+        btn.textContent = '✕ Copy failed';
+        setTimeout(() => { btn.textContent = '⧉ Copy'; }, 1500);
+      });
+    });
+    tip.appendChild(btn);
+  }
   document.addEventListener('click', (e) => {
-    const trigger = e.target.closest('.ts-action-trigger');
-    // Click inside an open tooltip body → don't close it
+    // Clicks INSIDE the tip body (not on the trigger pill itself): let them flow
+    // through so text selection / copy / Copy button work naturally.
     const insideTip = e.target.closest('.ts-action-tip');
-    if (insideTip && !trigger) return;
+    if (insideTip) return;
+    const trigger = e.target.closest('.ts-action-trigger');
     if (trigger) {
       e.stopPropagation();
       e.preventDefault();
       const wasOpen = trigger.classList.contains('open');
       closeAll(trigger);
-      trigger.classList.toggle('open', !wasOpen);
+      if (!wasOpen) {
+        trigger.classList.add('open');
+        ensureCopyBtn(trigger);
+      }
     } else {
       closeAll(null);
     }
@@ -2514,13 +2612,14 @@ function pqScoresForSeller(sid) {
   if (_PQ_BY_SELLER === null) _buildPQIndex();
   return _PQ_BY_SELLER[sid] || null;
 }
-// Color by PQ band — higher = better. Thresholds chosen for visual differentiation;
-// adjust if your team uses different bands.
+// Color by PQ band — higher = better. PQ values typically range 0–10
+// (e.g., 3.24, 4.12). Adjust HITS_PQ_BANDS if your team uses different cutoffs.
+const HITS_PQ_BANDS = { good: 4, ok: 3 };  // green ≥ 4, amber ≥ 3, red below
 function _pqColor(v) {
   if (v == null) return { bg: 'rgba(255,255,255,0.06)', fg: 'var(--text-soft)', bd: 'var(--border)' };
-  if (v >= 70) return { bg: 'rgba(52,211,153,0.16)', fg: '#6ee7b7', bd: 'rgba(52,211,153,0.32)' };
-  if (v >= 40) return { bg: 'rgba(251,191,36,0.16)', fg: '#fcd34d', bd: 'rgba(251,191,36,0.32)' };
-  return         { bg: 'rgba(248,113,113,0.16)', fg: '#fca5a5', bd: 'rgba(248,113,113,0.32)' };
+  if (v >= HITS_PQ_BANDS.good) return { bg: 'rgba(52,211,153,0.16)', fg: '#6ee7b7', bd: 'rgba(52,211,153,0.32)' };
+  if (v >= HITS_PQ_BANDS.ok)   return { bg: 'rgba(251,191,36,0.16)', fg: '#fcd34d', bd: 'rgba(251,191,36,0.32)' };
+  return                              { bg: 'rgba(248,113,113,0.16)', fg: '#fca5a5', bd: 'rgba(248,113,113,0.32)' };
 }
 
 function processMSPRecoveryCSV(text) {
@@ -3162,7 +3261,7 @@ async function fetchSheets() {
   // To add a new sheet: just add a tryFetch() row + a const in the destructure.
   // ============================================================
   LAST_FETCH_ERRORS = [];
-  setStatus("loading", "Fetching all sheets in parallel…");
+  setStatus("loading", "Loading…");
   async function tryFetch(key, label) {
     try {
       return await fetchOne(label, SHEETS[key]);
@@ -3205,7 +3304,7 @@ async function fetchSheets() {
     throw err;
   }
 
-  setStatus("loading", "Parsing CSVs…");
+  setStatus("loading", "Loading…");
 
   // ----- Wrap each parse in safeParse so a malformed CSV doesn't crash refresh -----
   function safeParse(label, raw, parser, emptyValue) {
@@ -3267,7 +3366,7 @@ async function fetchSheets() {
   } else {
     calls = { bySeller: {}, events: [], meta: { total_rows: 0, unique_sellers: 0, today: localISODate(new Date()), date_range: [null,null], error: "fetch failed" } };
   }
-  setStatus("loading", "Joining call data…");
+  setStatus("loading", "Loading…");
   const data = buildDashboardData(hyp, calls, revived, tasks, troubleshoot, chatReply, unassignment, remainingFunds);
   data.callContext = callContext;
   data.dailyARR = dailyARR;
@@ -4196,11 +4295,11 @@ function sellerIdCell(sid) {
   if (pq) {
     if (pq.fifteen_days != null) {
       const c = _pqColor(pq.fifteen_days);
-      tags.push(`<span class="pq-tag" style="background:${c.bg};color:${c.fg};border-color:${c.bd};" title="Last 15 days PQ Score">15d PQ ${Math.round(pq.fifteen_days)}</span>`);
+      tags.push(`<span class="pq-tag" style="background:${c.bg};color:${c.fg};border-color:${c.bd};" title="Last 15 days PQ Score">15d PQ ${Number(pq.fifteen_days).toFixed(2)}</span>`);
     }
     if (pq.lifetime != null) {
       const c = _pqColor(pq.lifetime);
-      tags.push(`<span class="pq-tag" style="background:${c.bg};color:${c.fg};border-color:${c.bd};" title="Lifetime PQ Score">LT PQ ${Math.round(pq.lifetime)}</span>`);
+      tags.push(`<span class="pq-tag" style="background:${c.bg};color:${c.fg};border-color:${c.bd};" title="Lifetime PQ Score">LT PQ ${Number(pq.lifetime).toFixed(2)}</span>`);
     }
   }
   const tagRow = tags.length
@@ -4478,6 +4577,7 @@ function renderAll() {
   renderSellerView(); renderBucketHealth(); renderCallView();
   renderTaskView(); renderTroubleshoot(); renderEscalation();
   renderRevivalCompliance();
+  renderCampaignTrack({ hostId: 'sub-camp', sellers: mktFilteredSellers(), statePrefix: 'mkt' });
   renderUnassignment();
   // Refresh the Daily Report if the tab is currently being shown (so live
   // numbers update without the user having to switch tabs).
@@ -5546,6 +5646,7 @@ function scaRenderEscalation() {
 
 // --- ARR View: per-seller daily spend over the last 7 days from a chosen end date ---
 let arrEndDate = null;
+let scaArrMetric = "arr";  // "arr" | "spend"
 function scaRenderARRView() {
   const host = document.getElementById('sub-sca-arr');
   if (!host) return;
@@ -5574,13 +5675,21 @@ function scaRenderARRView() {
   const arrAvailable = !!(dailyARR && dailyARR.bySeller && Object.keys(dailyARR.bySeller).length > 0);
   const arrError = dailyARR && dailyARR.error ? dailyARR.error : null;
 
+  // Pick which metric is being shown: spend or arr
+  const metricLabel = scaArrMetric === "spend" ? "Total Spend" : "ARR";
+  function pickValue(cell) {
+    if (cell === undefined || cell === null) return null;
+    if (typeof cell === 'object') return scaArrMetric === "spend" ? cell.spend : cell.arr;
+    // Legacy: cell was a plain number — treat as ARR for backward compat
+    return scaArrMetric === "arr" ? cell : null;
+  }
+
   // Compute per-day totals across visible sellers for a footer row
   const totals = days.map(iso => 0);
   const rows = sellers.map(s => {
     const sellerArr = arrAvailable ? (dailyARR.bySeller[s.seller_id] || {}) : {};
     const cells = days.map((iso, idx) => {
-      const cell = sellerArr[iso];
-      const v = cell && typeof cell === 'object' ? cell.arr : cell;
+      const v = pickValue(sellerArr[iso]);
       if (v === undefined || v === null) {
         return `<td class="num"><span class="empty-cell">—</span></td>`;
       }
@@ -5588,11 +5697,7 @@ function scaRenderARRView() {
       const color = v > 0 ? 'var(--text)' : 'var(--text-faint)';
       return `<td class="num" style="color:${color};">${fmtNum(v)}</td>`;
     }).join('');
-    const sellerTotal = days.reduce((a, iso) => {
-      const c = sellerArr[iso];
-      const val = c && typeof c === 'object' ? (c.arr || 0) : (c || 0);
-      return a + val;
-    }, 0);
+    const sellerTotal = days.reduce((a, iso) => a + (pickValue(sellerArr[iso]) || 0), 0);
     return `<tr>
       ${sellerIdCell(s.seller_id)}
       <td>${escHtml(s.seller_name) || '<span class="empty-cell">—</span>'}</td>
@@ -5617,11 +5722,15 @@ function scaRenderARRView() {
       : `Awaiting the daily-ARR sheet fileId + tab name. Once provided, cells will populate automatically.`;
 
   host.innerHTML = `<div class="card">
-    <h3>ARR View ${statusTag}</h3>
+    <h3>${escHtml(metricLabel)} View ${statusTag}</h3>
     <p style="color:#475569;font-size:12px;margin:0 0 10px 0;">${note}</p>
+    <div class="subtabs" style="margin-bottom:12px;">
+      <button class="subtab${scaArrMetric==='spend'?' active':''}" data-sca-arr-metric="spend">💰 Spend Track</button>
+      <button class="subtab${scaArrMetric==='arr'?' active':''}" data-sca-arr-metric="arr">📈 ARR Track</button>
+    </div>
     <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-bottom:10px;">
-      <label style="font-size:12px;color:#475569;font-weight:600;">Week ending:</label>
-      <input type="date" id="arr-end-date" value="${escHtml(arrEndDate)}" style="padding:6px 10px;border:1px solid #cbd5e1;border-radius:8px;font-size:13px;">
+      <label style="font-size:12px;color:var(--text-soft);font-weight:600;">Week ending:</label>
+      <input type="date" id="arr-end-date" value="${escHtml(arrEndDate)}" style="padding:6px 10px;border:1px solid var(--border-strong);border-radius:8px;font-size:13px;">
       <button type="button" class="refresh-btn" id="arr-reset">Reset to today</button>
       <span style="font-size:11px;color:#94a3b8;">Shows the 7 days ending on the selected date.</span>
     </div>
@@ -5638,6 +5747,9 @@ function scaRenderARRView() {
   const rst = document.getElementById('arr-reset');
   if (inp) inp.addEventListener('change', e => { arrEndDate = e.target.value; scaRenderARRView(); });
   if (rst) rst.addEventListener('click', () => { arrEndDate = localISODate(new Date()); scaRenderARRView(); });
+  host.querySelectorAll('[data-sca-arr-metric]').forEach(b => {
+    b.addEventListener('click', () => { scaArrMetric = b.dataset.scaArrMetric; scaRenderARRView(); });
+  });
 }
 
 // ============================================================
@@ -5891,6 +6003,314 @@ function renderARRRecovery() {
   });
 }
 
+// ============================================================
+//                    Campaign Track (shared)
+// ============================================================
+// Per-seller daily metrics with trend classification + actionable suggestions.
+// Used by Scaling tab + Marketing tab.
+//   goodDir: "up" means higher = better (Spend, CTR, Orders).
+//   goodDir: "down" means lower = better (CPM, Spend/GMV).
+const CAMPAIGN_METRICS = [
+  { id: "spend",     label: "Spend",     fmt: "num", goodDir: "up",   color: "#818cf8" },
+  { id: "cpm",       label: "CPM",       fmt: "num", goodDir: "down", color: "#f472b6" },
+  { id: "ctr",       label: "CTR",       fmt: "pct", goodDir: "up",   color: "#22d3ee" },
+  { id: "orders",    label: "Orders",    fmt: "num", goodDir: "up",   color: "#34d399" },
+  { id: "spend_gmv", label: "Spend/GMV", fmt: "pct", goodDir: "down", color: "#fbbf24" },
+];
+const CAMPAIGN_DEFAULT_DAYS = 30;
+// Per-host state. Marketing and Scaling each get their own copy.
+const _campaignState = {
+  mkt: { metric: "spend", days: CAMPAIGN_DEFAULT_DAYS, chart: null, miniCharts: [] },
+  sca: { metric: "spend", days: CAMPAIGN_DEFAULT_DAYS, chart: null, miniCharts: [] },
+};
+
+function _linearRegressionSlope(values) {
+  // x = day index, y = value. Returns slope (per-day change). Skips null y.
+  const xs = [], ys = [];
+  values.forEach((v, i) => { if (v != null && !isNaN(v)) { xs.push(i); ys.push(v); } });
+  if (xs.length < 2) return 0;
+  const n = xs.length;
+  const sx  = xs.reduce((a, b) => a + b, 0);
+  const sy  = ys.reduce((a, b) => a + b, 0);
+  const sxy = xs.reduce((a, x, i) => a + x * ys[i], 0);
+  const sxx = xs.reduce((a, x) => a + x * x, 0);
+  const denom = n * sxx - sx * sx;
+  if (denom === 0) return 0;
+  return (n * sxy - sx * sy) / denom;
+}
+function _classifyCampaignTrend(slope, mean, goodDir) {
+  if (mean == null || mean === 0) return "stable";
+  const pctPerDay = slope / Math.abs(mean);
+  const TH = 0.01;  // 1% per day = significant
+  const rising = pctPerDay > TH, falling = pctPerDay < -TH;
+  if (!rising && !falling) return "stable";
+  if (goodDir === "up")   return rising  ? "improving" : "worsening";
+  if (goodDir === "down") return falling ? "improving" : "worsening";
+  return "stable";
+}
+function _trendBadge(trend) {
+  if (trend === "improving") return `<span class="trend-tag trend-improving">📈 Improving</span>`;
+  if (trend === "worsening") return `<span class="trend-tag trend-worsening">📉 Worsening</span>`;
+  return `<span class="trend-tag trend-stable">➡️ Stable</span>`;
+}
+function _suggestionFor(metricId, trend) {
+  if (trend === "improving") return "On track — protect what's working, consider scaling spend if ROAS healthy";
+  if (trend === "stable")    return "Stable — try a controlled experiment to break the plateau";
+  // Worsening
+  switch (metricId) {
+    case "spend":     return "Spend dropping — check ad delivery, audience saturation, budget caps, or paused campaigns";
+    case "cpm":       return "CPM rising — creative fatigue or audience overlap. Refresh creatives, A/B test new hooks, broaden or narrow targeting";
+    case "ctr":       return "CTR dropping — creatives stale. Refresh copy and visuals, test new hooks, swap thumbnails";
+    case "orders":    return "Orders falling — audit landing page, checkout funnel, pricing, stock availability, RTO risk";
+    case "spend_gmv": return "Ad efficiency dropping — pause underperforming campaigns, refocus on top ROAS angles, audit bid strategy";
+  }
+  return "Investigate the metric in detail";
+}
+function _fmtMetric(v, fmt) {
+  if (v == null) return '<span class="empty-cell">—</span>';
+  if (fmt === "pct") return Number(v).toFixed(2) + "%";
+  return fmtNum(v);
+}
+
+// Build per-seller series for a metric over the last N days ending today.
+function _buildCampaignMatrix(sellers, metricId, days) {
+  const dm = (typeof CACHED_PAYLOAD !== 'undefined' && CACHED_PAYLOAD && CACHED_PAYLOAD.dailyMetrics) || null;
+  const today = new Date(); today.setHours(0, 0, 0, 0);
+  const dateIsos = [];
+  for (let i = days - 1; i >= 0; i--) {
+    dateIsos.push(localISODate(new Date(today.getTime() - i * 86400000)));
+  }
+  const meta = CAMPAIGN_METRICS.find(m => m.id === metricId);
+  const goodDir = meta ? meta.goodDir : "up";
+  const rows = sellers.map(s => {
+    const sellerRows = (dm && dm.bySeller && dm.bySeller[s.seller_id]) || [];
+    const byDate = {};
+    sellerRows.forEach(r => { byDate[r.date_iso] = r[metricId]; });
+    const series = dateIsos.map(iso => (byDate[iso] !== undefined ? byDate[iso] : null));
+    const nonNull = series.filter(v => v != null);
+    const mean = nonNull.length ? nonNull.reduce((a, b) => a + b, 0) / nonNull.length : null;
+    const slope = _linearRegressionSlope(series);
+    const trend = _classifyCampaignTrend(slope, mean, goodDir);
+    const recent = series.filter(v => v != null).slice(-1)[0] ?? null;
+    return { seller: s, series, mean, slope, trend, recent };
+  });
+  return { dateIsos, rows, meta };
+}
+
+function renderCampaignTrack(opts) {
+  // opts: { hostId, sellers, statePrefix ("mkt" | "sca") }
+  const host = document.getElementById(opts.hostId);
+  if (!host) return;
+  const dm = (typeof CACHED_PAYLOAD !== 'undefined' && CACHED_PAYLOAD && CACHED_PAYLOAD.dailyMetrics) || null;
+  if (!dm || dm.error) {
+    const err = dm && dm.error ? `Daily Metrics fetch failed: ${String(dm.error).slice(0, 160)}` : "Loading daily metrics…";
+    host.innerHTML = `<div class="card"><h3>Campaign Track <span class="pending-tag">DAILY METRICS</span></h3><div class="pending-card"><h4>${escHtml(err)}</h4></div></div>`;
+    return;
+  }
+  const state = _campaignState[opts.statePrefix];
+  const sellers = opts.sellers || [];
+  const days = state.days || CAMPAIGN_DEFAULT_DAYS;
+
+  // Destroy any previous chart instances to free memory
+  if (state.chart) { try { state.chart.destroy(); } catch (e) {} state.chart = null; }
+  (state.miniCharts || []).forEach(c => { try { c.destroy(); } catch (e) {} });
+  state.miniCharts = [];
+
+  // Build matrix for current metric (or all metrics if "overall")
+  const metricTabs = [...CAMPAIGN_METRICS, { id: "overall", label: "Overall Track" }];
+  const subtabsHTML = `<div class="subtabs" style="margin-bottom:10px;">
+    ${metricTabs.map(m => `<button class="subtab${state.metric===m.id?' active':''}" data-camp-metric="${m.id}">${escHtml(m.label)}</button>`).join('')}
+  </div>`;
+
+  const dayOpts = [7, 15, 30, 60, 90].map(d => `<option value="${d}"${days===d?' selected':''}>Last ${d} days</option>`).join('');
+  const filterHTML = `<div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-bottom:14px;">
+    <label style="font-size:12px;color:var(--text-soft);font-weight:600;">Date range:</label>
+    <select id="${opts.statePrefix}-camp-days" class="dr-select" style="min-width:160px;">${dayOpts}</select>
+    <span style="font-size:11px;color:#94a3b8;">Source: Daily Metrics sheet · ${sellers.length} seller${sellers.length===1?'':'s'} in scope</span>
+  </div>`;
+
+  let body = "";
+  if (state.metric === "overall") {
+    // Five mini charts, one per metric, aggregated (sum) across sellers per day
+    const miniBlocks = CAMPAIGN_METRICS.map((m, idx) => {
+      const mx = _buildCampaignMatrix(sellers, m.id, days);
+      // Aggregate per-day (sum for spend/orders, average for cpm/ctr/spend_gmv)
+      const useAvg = (m.id === "cpm" || m.id === "ctr" || m.id === "spend_gmv");
+      const agg = mx.dateIsos.map((iso, dayIdx) => {
+        const vals = mx.rows.map(r => r.series[dayIdx]).filter(v => v != null);
+        if (vals.length === 0) return null;
+        return useAvg ? (vals.reduce((a, b) => a + b, 0) / vals.length) : vals.reduce((a, b) => a + b, 0);
+      });
+      const aggNonNull = agg.filter(v => v != null);
+      const aggMean = aggNonNull.length ? aggNonNull.reduce((a, b) => a + b, 0) / aggNonNull.length : null;
+      const aggSlope = _linearRegressionSlope(agg);
+      const aggTrend = _classifyCampaignTrend(aggSlope, aggMean, m.goodDir);
+      const canvasId = `${opts.statePrefix}-camp-mini-${m.id}`;
+      return `<div class="camp-mini-card">
+        <div class="camp-mini-header">
+          <div>
+            <div class="camp-mini-label">${escHtml(m.label)}</div>
+            <div class="camp-mini-mean">${useAvg ? 'Avg' : 'Total'}: <b>${_fmtMetric(aggMean, m.fmt)}</b></div>
+          </div>
+          ${_trendBadge(aggTrend)}
+        </div>
+        <div style="position:relative;height:140px;width:100%;">
+          <canvas id="${canvasId}" data-iso='${JSON.stringify(mx.dateIsos)}' data-vals='${JSON.stringify(agg)}' data-color="${m.color}" data-label="${escHtml(m.label)}"></canvas>
+        </div>
+        <div class="camp-mini-suggestion">${escHtml(_suggestionFor(m.id, aggTrend))}</div>
+      </div>`;
+    }).join('');
+
+    body = `<div class="camp-mini-grid">${miniBlocks}</div>`;
+  } else {
+    const mx = _buildCampaignMatrix(sellers, state.metric, days);
+    const m = mx.meta || CAMPAIGN_METRICS[0];
+    // Sort: worsening first (most attention), then stable, then improving
+    const order = { worsening: 0, stable: 1, improving: 2 };
+    mx.rows.sort((a, b) => {
+      if (order[a.trend] !== order[b.trend]) return order[a.trend] - order[b.trend];
+      return (b.mean || 0) - (a.mean || 0);
+    });
+    // Aggregate line across sellers for the main chart
+    const useAvg = (state.metric === "cpm" || state.metric === "ctr" || state.metric === "spend_gmv");
+    const agg = mx.dateIsos.map((iso, dayIdx) => {
+      const vals = mx.rows.map(r => r.series[dayIdx]).filter(v => v != null);
+      if (vals.length === 0) return null;
+      return useAvg ? (vals.reduce((a, b) => a + b, 0) / vals.length) : vals.reduce((a, b) => a + b, 0);
+    });
+    const counts = { improving: 0, stable: 0, worsening: 0 };
+    mx.rows.forEach(r => { counts[r.trend]++; });
+    const summaryCards = `<div class="quad-grid" style="grid-template-columns:repeat(3,minmax(120px,1fr));margin-bottom:12px;">
+      <div class="quad-card" style="border-color:rgba(52,211,153,0.32);">
+        <div class="quad-icon">📈</div><div class="quad-label">Improving</div>
+        <div class="quad-value" style="color:var(--success);">${counts.improving}</div>
+      </div>
+      <div class="quad-card" style="border-color:rgba(255,255,255,0.12);">
+        <div class="quad-icon">➡️</div><div class="quad-label">Stable</div>
+        <div class="quad-value">${counts.stable}</div>
+      </div>
+      <div class="quad-card" style="border-color:rgba(248,113,113,0.40);">
+        <div class="quad-icon">📉</div><div class="quad-label">Worsening</div>
+        <div class="quad-value" style="color:var(--danger);">${counts.worsening}</div>
+      </div>
+    </div>`;
+    const chartCanvasId = `${opts.statePrefix}-camp-main-chart`;
+    const tableRows = mx.rows.map(r => {
+      const lastDayLabel = r.recent != null ? _fmtMetric(r.recent, m.fmt) : '<span class="empty-cell">—</span>';
+      const meanLabel = _fmtMetric(r.mean, m.fmt);
+      const sugg = _suggestionFor(state.metric, r.trend);
+      return `<tr>
+        ${sellerIdCell(r.seller.seller_id)}
+        <td>${escHtml(r.seller.seller_name) || '<span class="empty-cell">—</span>'}</td>
+        <td>${_trendBadge(r.trend)}</td>
+        <td class="num">${lastDayLabel}</td>
+        <td class="num">${meanLabel}</td>
+        <td style="text-align:left;font-size:11.5px;color:var(--text-muted);">${escHtml(sugg)}</td>
+      </tr>`;
+    }).join('');
+
+    body = `${summaryCards}
+      <div class="card" style="margin-bottom:14px;">
+        <h3>${escHtml(m.label)} · Daily trend across ${sellers.length} seller${sellers.length===1?'':'s'} <span class="src-tag">${useAvg ? 'Avg' : 'Total'} per day</span></h3>
+        <div style="position:relative;height:280px;width:100%;">
+          <canvas id="${chartCanvasId}" data-iso='${JSON.stringify(mx.dateIsos)}' data-vals='${JSON.stringify(agg)}' data-color="${m.color}" data-label="${escHtml(m.label)}"></canvas>
+        </div>
+      </div>
+      <div class="card">
+        <h3>Per-Seller breakdown</h3>
+        <div class="tbl-wrap" style="max-height:60vh;">
+          <table class="t">
+            <thead><tr>
+              <th>Seller ID</th><th>Seller Name</th><th>Trend</th>
+              <th class="num">Latest</th><th class="num">${days}d Avg</th>
+              <th style="text-align:left;">Suggestion</th>
+            </tr></thead>
+            <tbody>${tableRows || `<tr><td colspan="6" style="text-align:center;color:#94a3b8;padding:20px;">No daily-metrics data for these sellers in the last ${days} days.</td></tr>`}</tbody>
+          </table>
+        </div>
+      </div>`;
+  }
+
+  host.innerHTML = `<div class="card" style="background:linear-gradient(135deg,rgba(99,102,241,0.10),rgba(34,211,238,0.04));">
+      <h3 style="margin:0 0 6px 0;font-family:'Sora',sans-serif;font-size:17px;">📡 Campaign Track</h3>
+      <p style="margin:0 0 12px 0;font-size:12.5px;color:var(--text-soft);line-height:1.55;">
+        Date-wise performance of each daily metric per seller. Trends classified as <b style="color:var(--success);">📈 Improving</b>, <b>➡️ Stable</b>, or <b style="color:var(--danger);">📉 Worsening</b> via direction-aware linear regression. Click any seller's chip below for the recommended action.
+      </p>
+      ${subtabsHTML}
+      ${filterHTML}
+    </div>
+    <div>${body}</div>`;
+
+  // Wire interactions
+  host.querySelectorAll('[data-camp-metric]').forEach(b => {
+    b.addEventListener('click', () => { state.metric = b.dataset.campMetric; renderCampaignTrack(opts); });
+  });
+  const daysSel = document.getElementById(opts.statePrefix + '-camp-days');
+  if (daysSel) daysSel.addEventListener('change', e => { state.days = parseInt(e.target.value, 10) || CAMPAIGN_DEFAULT_DAYS; renderCampaignTrack(opts); });
+
+  // Build charts
+  if (typeof Chart !== 'undefined') {
+    if (state.metric === "overall") {
+      CAMPAIGN_METRICS.forEach(m => {
+        const cv = document.getElementById(`${opts.statePrefix}-camp-mini-${m.id}`);
+        if (!cv) return;
+        const iso = JSON.parse(cv.dataset.iso || '[]');
+        const vals = JSON.parse(cv.dataset.vals || '[]');
+        const c = new Chart(cv.getContext('2d'), {
+          type: 'line',
+          data: {
+            labels: iso.map(d => { const dt = new Date(d + 'T00:00:00'); return dt.toLocaleDateString('en-IN', { day: '2-digit', month: 'short' }); }),
+            datasets: [{
+              label: cv.dataset.label, data: vals,
+              borderColor: cv.dataset.color, backgroundColor: cv.dataset.color + '22',
+              tension: 0.32, pointRadius: 0, pointHoverRadius: 4, borderWidth: 2, fill: true, spanGaps: true,
+            }]
+          },
+          options: {
+            responsive: true, maintainAspectRatio: false,
+            plugins: { legend: { display: false }, tooltip: { backgroundColor: 'rgba(14,20,38,0.95)', borderColor: 'rgba(139,92,246,0.30)', borderWidth: 1, padding: 8, cornerRadius: 8 } },
+            scales: {
+              x: { ticks: { display: false }, grid: { display: false } },
+              y: { ticks: { color: '#94a3b8', font: { size: 10 }, maxTicksLimit: 4 }, grid: { color: 'rgba(255,255,255,0.05)' } },
+            },
+            animation: { duration: 350 }
+          }
+        });
+        state.miniCharts.push(c);
+      });
+    } else {
+      const cv = document.getElementById(`${opts.statePrefix}-camp-main-chart`);
+      if (cv) {
+        const iso = JSON.parse(cv.dataset.iso || '[]');
+        const vals = JSON.parse(cv.dataset.vals || '[]');
+        state.chart = new Chart(cv.getContext('2d'), {
+          type: 'line',
+          data: {
+            labels: iso.map(d => { const dt = new Date(d + 'T00:00:00'); return dt.toLocaleDateString('en-IN', { day: '2-digit', month: 'short' }); }),
+            datasets: [{
+              label: cv.dataset.label, data: vals,
+              borderColor: cv.dataset.color, backgroundColor: cv.dataset.color + '22',
+              tension: 0.32, pointRadius: 2.5, pointHoverRadius: 6, borderWidth: 2.5, fill: true, spanGaps: true,
+            }]
+          },
+          options: {
+            responsive: true, maintainAspectRatio: false,
+            plugins: {
+              legend: { position: 'top', labels: { color: '#c1cad9', font: { size: 12, weight: 600 } } },
+              tooltip: { backgroundColor: 'rgba(14,20,38,0.95)', borderColor: 'rgba(139,92,246,0.30)', borderWidth: 1, padding: 10, cornerRadius: 10 }
+            },
+            scales: {
+              x: { ticks: { color: '#94a3b8', font: { size: 11 }, maxRotation: 45, minRotation: 45 }, grid: { display: false } },
+              y: { beginAtZero: true, ticks: { color: '#94a3b8', font: { size: 11 } }, grid: { color: 'rgba(255,255,255,0.05)' } },
+            },
+            animation: { duration: 500 }
+          }
+        });
+      }
+    }
+  }
+}
+
 function renderScaling() {
   if (!SCALING) {
     document.getElementById('view-Scaling').querySelector('#sub-sca-seller').innerHTML =
@@ -5906,6 +6326,7 @@ function renderScaling() {
   scaRenderEscalation();
   scaRenderARRView();
   renderARRRecovery();
+  renderCampaignTrack({ hostId: 'sub-sca-camp', sellers: scaFilteredSellers(), statePrefix: 'sca' });
 }
 
 // ============================================================
