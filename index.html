@@ -520,33 +520,59 @@
     border: 1px dashed rgba(139,92,246,0.45);
     background: rgba(99,102,241,0.09);
     color: var(--text-muted);
-    font-size: 11px; font-weight: 600; cursor: help;
+    font-size: 11px; font-weight: 600; cursor: pointer;
+    user-select: none;
     transition: background var(--t-fast) var(--ease), border-color var(--t-fast) var(--ease), color var(--t-fast) var(--ease);
   }
-  .ts-action-trigger:hover, .ts-action-trigger:focus-visible {
+  .ts-action-trigger:hover, .ts-action-trigger:focus-visible, .ts-action-trigger.open {
     background: rgba(99,102,241,0.22); border-color: var(--brand);
     color: #ffffff;
   }
   .ts-action-tip {
     opacity: 0; pointer-events: none; visibility: hidden;
-    position: absolute; top: 100%; left: 0; margin-top: 8px; z-index: 30;
+    position: absolute; top: 100%; left: 50%; transform: translate(-50%, -4px);
+    margin-top: 10px; z-index: 100;
     min-width: 260px; max-width: 420px; padding: 12px 14px;
-    background: rgba(14, 20, 38, 0.92);
+    background: rgba(14, 20, 38, 0.96);
     color: var(--text);
     border-radius: 12px;
-    border: 1px solid rgba(139,92,246,0.30);
+    border: 1px solid rgba(139,92,246,0.40);
     backdrop-filter: blur(18px);
     -webkit-backdrop-filter: blur(18px);
-    box-shadow: var(--shadow-xl), 0 0 0 1px rgba(139,92,246,0.10);
+    box-shadow: var(--shadow-xl), 0 0 0 1px rgba(139,92,246,0.18), 0 0 32px -8px rgba(99,102,241,0.45);
     font-size: 12px; font-weight: 400; line-height: 1.55;
     white-space: pre-wrap; word-break: break-word;
-    transform: translateY(-4px);
+    text-align: left;
     transition: opacity var(--t-fast) var(--ease), transform var(--t-fast) var(--ease), visibility 0s linear var(--t-fast);
   }
-  .ts-action-trigger:hover .ts-action-tip, .ts-action-trigger:focus-visible .ts-action-tip,
-  .ts-action-trigger:focus-within .ts-action-tip {
-    opacity: 1; pointer-events: auto; visibility: visible; transform: translateY(0);
+  :root[data-theme="light"] .ts-action-tip {
+    background: rgba(255,255,255,0.98);
+    color: var(--text);
+    border-color: rgba(79,70,229,0.30);
+    box-shadow: var(--shadow-xl), 0 0 0 1px rgba(79,70,229,0.16), 0 0 32px -8px rgba(79,70,229,0.30);
+  }
+  /* Floating popup arrow */
+  .ts-action-tip::before {
+    content: ""; position: absolute; top: -6px; left: 50%; transform: translateX(-50%) rotate(45deg);
+    width: 10px; height: 10px;
+    background: rgba(14, 20, 38, 0.96);
+    border-left: 1px solid rgba(139,92,246,0.40);
+    border-top: 1px solid rgba(139,92,246,0.40);
+  }
+  :root[data-theme="light"] .ts-action-tip::before {
+    background: rgba(255,255,255,0.98);
+    border-left-color: rgba(79,70,229,0.30);
+    border-top-color: rgba(79,70,229,0.30);
+  }
+  /* CLICK-TO-OPEN: only show when .open class is applied (no longer hover-driven) */
+  .ts-action-trigger.open .ts-action-tip {
+    opacity: 1; pointer-events: auto; visibility: visible; transform: translate(-50%, 0);
     transition: opacity var(--t-fast) var(--ease), transform var(--t-fast) var(--ease), visibility 0s;
+  }
+  /* Close-on-blur visual hint */
+  .ts-action-trigger.open::after {
+    content: ""; position: fixed; inset: 0; z-index: 99;
+    background: transparent; pointer-events: none;
   }
   .ts-eligible {
     display: inline-block; padding: 3px 10px; border-radius: 999px;
@@ -1259,6 +1285,20 @@
   }
   .exp-tag::before { content: "✦"; font-size: 9px; line-height: 1; opacity: .9; }
 
+  /* PQ score tags shown under seller IDs */
+  .seller-id-tags {
+    display: flex; flex-wrap: wrap; gap: 4px;
+    margin-top: 4px; justify-content: center;
+  }
+  .pq-tag {
+    display: inline-flex; align-items: center; gap: 3px;
+    padding: 1px 7px; border-radius: 999px;
+    font-size: 9.5px; font-weight: 700;
+    letter-spacing: 0.02em; text-transform: uppercase; white-space: nowrap;
+    border: 1px solid transparent;
+    cursor: help;
+  }
+
   /* "Funds Addition Required" alert pill (Prepaid accounts) */
   .funds-flag {
     display: inline-flex; align-items: center; gap: 4px;
@@ -1711,6 +1751,38 @@ function applyChartTheme() {
   Chart.defaults.font.weight = '500';
 }
 applyChartTheme();
+
+// ============================================================
+// Click-to-open tooltip handler (used by every .ts-action-trigger
+// throughout the dashboard). Clicking a trigger toggles its .open class;
+// clicking anywhere outside, on the Escape key, or on a different trigger
+// closes any currently-open ones.
+// ============================================================
+(function _initClickTooltips() {
+  function closeAll(except) {
+    document.querySelectorAll('.ts-action-trigger.open').forEach(el => {
+      if (el !== except) el.classList.remove('open');
+    });
+  }
+  document.addEventListener('click', (e) => {
+    const trigger = e.target.closest('.ts-action-trigger');
+    // Click inside an open tooltip body → don't close it
+    const insideTip = e.target.closest('.ts-action-tip');
+    if (insideTip && !trigger) return;
+    if (trigger) {
+      e.stopPropagation();
+      e.preventDefault();
+      const wasOpen = trigger.classList.contains('open');
+      closeAll(trigger);
+      trigger.classList.toggle('open', !wasOpen);
+    } else {
+      closeAll(null);
+    }
+  });
+  document.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape') closeAll(null);
+  });
+})();
 // ============================================================
 // OAuth 2.0 + Google Sheets API config — FILL THESE IN
 // ============================================================
@@ -1744,8 +1816,9 @@ const SHEETS = {
   experimental:   { fileId: "1dWdoWmhEwH5uCsgTe62GSmy8VjcRZ7DAneN3fFg7xTo",  tab: "experimental" },
   revivalTrack:   { fileId: "1BFlI-jHjbfg8SQpS6iCNgL4oT8hbECUjvRXF060hHbo",  tab: "Revival Track + Unassignment" },
   mspRecovery:    { fileId: "1L1I5Dh3t_LLgmr__1nENpszAa7FwktSOTrMNySlrk48",  tab: "Mapping" },
-  hitsMarchCohort:{ fileId: "1dcCIuu4kt9oSKjTx6rr4_nT3pDNcFDovhF-3A1_aAIo",  tab: "Active Sellers" },
-  hitsAprilCohort:{ fileId: "1pvQ4ewHIta4iqn3GCRFgGIQsKPLURaoY3mtShsm_7ms",  tab: "Dump" },
+  hitsBeforeMarchCohort: { fileId: "1dcCIuu4kt9oSKjTx6rr4_nT3pDNcFDovhF-3A1_aAIo", tab: "Before March" },
+  hitsMarchCohort:       { fileId: "1dcCIuu4kt9oSKjTx6rr4_nT3pDNcFDovhF-3A1_aAIo", tab: "Active Sellers" },
+  hitsAprilCohort:       { fileId: "1pvQ4ewHIta4iqn3GCRFgGIQsKPLURaoY3mtShsm_7ms", tab: "Dump" },
   gcv3Dump:       { fileId: "1ayKSKlZa6J3ueFqco4XOnqog9X1VcA9fKm7D5wfRqf8",  tab: "Auto_Dump" },
   dailyMetrics:   { fileId: "19W3KsIIWgp2Aw5h4DzXPMYpAYFrJ7FHA2zNC8ppb1E0",  tab: "MetricsTrack" },
 };
@@ -2376,9 +2449,10 @@ function processGCV3DumpCSV(text) {
 }
 
 function processDailyMetricsCSV(text) {
-  // Daily Metrics Tracker — positional schema (per user spec):
-  //   A=seller_id, B=date, C=spend, F=CPM, G=CTR, H=orders, J=spend_gmv (weekly)
-  // Returns: bySeller[sid] = [{ date, date_iso, spend, cpm, ctr, orders, spend_gmv }, ...]
+  // Daily Metrics Tracker — positional schema:
+  //   A=seller_id, B=date, C=spend, F=CPM, G=CTR, H=orders, J=spend_gmv (weekly),
+  //   K=Last Lifetime PQ Score, L=Last 15 days PQ Score
+  // Returns: bySeller[sid] = [{ date, ..., pq_lifetime, pq_15d }, ...]
   const rows = parseCSV(text);
   if (rows.length < 2) throw new Error("Daily Metrics CSV too short (" + rows.length + " rows)");
   const bySeller = {};
@@ -2391,14 +2465,16 @@ function processDailyMetricsCSV(text) {
     if (!d) continue;
     const dateIso = localISODate(d);
     const entry = {
-      date:      norm(r[1]),
-      date_iso:  dateIso,
-      ts:        d.getTime(),
-      spend:     num(r[2]),
-      cpm:       num(r[5]),
-      ctr:       num(r[6]),
-      orders:    num(r[7]),
-      spend_gmv: num(r[9]),
+      date:        norm(r[1]),
+      date_iso:    dateIso,
+      ts:          d.getTime(),
+      spend:       num(r[2]),
+      cpm:         num(r[5]),
+      ctr:         num(r[6]),
+      orders:      num(r[7]),
+      spend_gmv:   num(r[9]),
+      pq_lifetime: num(r[10]),  // column K — Last Lifetime PQ Score
+      pq_15d:      num(r[11]),  // column L — Last 15 days PQ Score
     };
     if (!bySeller[sid]) bySeller[sid] = [];
     bySeller[sid].push(entry);
@@ -2408,6 +2484,43 @@ function processDailyMetricsCSV(text) {
     bySeller[sid].sort((a, b) => a.ts - b.ts);
   });
   return { bySeller, count: Object.keys(bySeller).length };
+}
+
+// Returns the latest non-null PQ scores for a seller, or null if none on file.
+// Memoized for performance (rebuilt whenever fresh data lands — same pattern as _EXPERIMENTAL_SET).
+let _PQ_BY_SELLER = null;
+function _buildPQIndex() {
+  _PQ_BY_SELLER = {};
+  const payload = (typeof CACHED_PAYLOAD !== 'undefined' && CACHED_PAYLOAD) ? CACHED_PAYLOAD : null;
+  const dm = payload && payload.dailyMetrics && payload.dailyMetrics.bySeller;
+  if (!dm) return;
+  Object.keys(dm).forEach(sid => {
+    const rows = dm[sid] || [];
+    // Walk newest → oldest and capture first non-null PQ values
+    let lifetime = null, fifteenDays = null;
+    for (let i = rows.length - 1; i >= 0; i--) {
+      const r = rows[i];
+      if (lifetime    === null && r.pq_lifetime != null) lifetime    = r.pq_lifetime;
+      if (fifteenDays === null && r.pq_15d      != null) fifteenDays = r.pq_15d;
+      if (lifetime !== null && fifteenDays !== null) break;
+    }
+    if (lifetime !== null || fifteenDays !== null) {
+      _PQ_BY_SELLER[sid] = { lifetime, fifteen_days: fifteenDays };
+    }
+  });
+}
+function pqScoresForSeller(sid) {
+  if (!sid) return null;
+  if (_PQ_BY_SELLER === null) _buildPQIndex();
+  return _PQ_BY_SELLER[sid] || null;
+}
+// Color by PQ band — higher = better. Thresholds chosen for visual differentiation;
+// adjust if your team uses different bands.
+function _pqColor(v) {
+  if (v == null) return { bg: 'rgba(255,255,255,0.06)', fg: 'var(--text-soft)', bd: 'var(--border)' };
+  if (v >= 70) return { bg: 'rgba(52,211,153,0.16)', fg: '#6ee7b7', bd: 'rgba(52,211,153,0.32)' };
+  if (v >= 40) return { bg: 'rgba(251,191,36,0.16)', fg: '#fcd34d', bd: 'rgba(251,191,36,0.32)' };
+  return         { bg: 'rgba(248,113,113,0.16)', fg: '#fca5a5', bd: 'rgba(248,113,113,0.32)' };
 }
 
 function processMSPRecoveryCSV(text) {
@@ -2912,13 +3025,8 @@ function _scheduleTokenRefresh(expiresInSec) {
     refreshAccessTokenSilent().catch(e => console.warn("silent refresh failed:", e));
   }, ms);
 }
-let _REFRESH_IN_FLIGHT = null;
 function refreshAccessTokenSilent() {
-  // Coalesce concurrent refreshes: when many parallel sheet fetches all hit a
-  // 401 at the same time, they must share ONE token refresh rather than each
-  // firing its own requestAccessToken (which would corrupt the shared callback).
-  if (_REFRESH_IN_FLIGHT) return _REFRESH_IN_FLIGHT;
-  _REFRESH_IN_FLIGHT = new Promise((resolve, reject) => {
+  return new Promise((resolve, reject) => {
     if (!OAUTH_TOKEN_CLIENT) return reject(new Error("token client not ready"));
     const origCb = OAUTH_TOKEN_CLIENT.callback;
     OAUTH_TOKEN_CLIENT.callback = (resp) => {
@@ -2935,8 +3043,7 @@ function refreshAccessTokenSilent() {
     // prompt: '' = silent (uses existing consent)
     try { OAUTH_TOKEN_CLIENT.requestAccessToken({ prompt: "" }); }
     catch (e) { reject(e); }
-  }).finally(() => { _REFRESH_IN_FLIGHT = null; });
-  return _REFRESH_IN_FLIGHT;
+  });
 }
 async function _fetchUserInfo() {
   if (!OAUTH_ACCESS_TOKEN) return;
@@ -3046,91 +3153,109 @@ function _isPermissionError(err) {
   return /HTTP 403|PERMISSION_DENIED|caller does not have permission/i.test(msg);
 }
 async function fetchSheets() {
+  // ============================================================
+  // PARALLEL FETCH — all 17 sheets in flight at once.
+  // ⚠ Do NOT revert this to sequential awaits — it makes first-load go from
+  //   ~10-17s back to ~1-2s. Each fetch's failure is captured non-fatally so
+  //   the dashboard renders with whatever DID succeed; the diagnostic banner
+  //   surfaces the rest.
+  // To add a new sheet: just add a tryFetch() row + a const in the destructure.
+  // ============================================================
   LAST_FETCH_ERRORS = [];
   setStatus("loading", "Fetching all sheets in parallel…");
-
-  // Fire EVERY sheet request at once instead of awaiting them one by one.
-  // Total wait time becomes the slowest single sheet, not the sum of all of
-  // the sequential round-trips.
-  const FETCH_JOBS = [
-    ["hypercare",       "Hypercare Metrics"],
-    ["calling",         "Calling sheet"],
-    ["revived",         "Revived sheet"],
-    ["tasks",           "Tasks sheet"],
-    ["troubleshoot",    "Troubleshoot sheet"],
-    ["chatReply",       "Chat Reply sheet"],
-    ["unassignment",    "Unassignment sheet"],
-    ["remainingFunds",  "Remaining Funds sheet"],
-    ["callContext",     "Call Context sheet"],
-    ["dailyARR",        "Daily ARR sheet"],
-    ["experimental",    "Experimental Sellers sheet"],
-    ["revivalTrack",    "Revival Track sheet"],
-    ["mspRecovery",     "MSP Recovery sheet"],
-    ["hitsMarchCohort", "HITS March Cohort sheet"],
-    ["hitsAprilCohort", "HITS April Cohort sheet"],
-    ["gcv3Dump",        "GCV3 Dump sheet"],
-    ["dailyMetrics",    "Daily Metrics sheet"],
-  ];
-  const settled = await Promise.allSettled(
-    FETCH_JOBS.map(([key, label]) => fetchOne(label, SHEETS[key]))
-  );
-  const R = {};
-  FETCH_JOBS.forEach(([key, label], idx) => { R[key] = { label, result: settled[idx] }; });
-
-  // Returns the fetched CSV text, or records the fetch error and returns null.
-  function take(key) {
-    const { label, result } = R[key];
-    if (result.status === "fulfilled") return result.value;
-    const msg = (result.reason && result.reason.message) || String(result.reason);
-    console.warn(label + " failed:", msg);
-    LAST_FETCH_ERRORS.push({ key, label, error: msg, fileId: SHEETS[key].fileId });
-    return null;
-  }
-  // Parses an optional sheet. On fetch OR parse failure it records the error and
-  // returns the supplied fallback so the rest of the dashboard still renders.
-  function optional(key, parseFn, makeFallback) {
-    const { label, result } = R[key];
-    if (result.status === "fulfilled") {
-      try { return parseFn(result.value); }
-      catch (e) {
-        console.warn(label + " parse failed (non-fatal):", e.message);
-        LAST_FETCH_ERRORS.push({ key, label, error: e.message, fileId: SHEETS[key].fileId });
-        return makeFallback(e.message);
-      }
+  async function tryFetch(key, label) {
+    try {
+      return await fetchOne(label, SHEETS[key]);
+    } catch (e) {
+      console.warn(`${label} failed (non-fatal):`, e.message);
+      LAST_FETCH_ERRORS.push({ key, label, error: e.message, fileId: SHEETS[key] && SHEETS[key].fileId });
+      return null;
     }
-    const msg = (result.reason && result.reason.message) || String(result.reason);
-    console.warn(label + " failed (non-fatal):", msg);
-    LAST_FETCH_ERRORS.push({ key, label, error: msg, fileId: SHEETS[key].fileId });
-    return makeFallback(msg);
   }
+  const [
+    h, c, rRaw, tRaw, tsRaw, crRaw, uRaw, rfRaw,
+    ccRaw, arrRaw, exRaw, rtRaw, msRaw,
+    hbmRaw, hmRaw, haRaw, gcRaw, dmRaw,
+  ] = await Promise.all([
+    tryFetch("hypercare",            "Hypercare Metrics"),
+    tryFetch("calling",              "Calling sheet"),
+    tryFetch("revived",              "Revived sheet"),
+    tryFetch("tasks",                "Tasks sheet"),
+    tryFetch("troubleshoot",         "Troubleshoot sheet"),
+    tryFetch("chatReply",            "Chat Reply sheet"),
+    tryFetch("unassignment",         "Unassignment sheet"),
+    tryFetch("remainingFunds",       "Remaining Funds sheet"),
+    tryFetch("callContext",          "Call Context sheet"),
+    tryFetch("dailyARR",             "Daily ARR sheet"),
+    tryFetch("experimental",         "Experimental Sellers sheet"),
+    tryFetch("revivalTrack",         "Revival Track sheet"),
+    tryFetch("mspRecovery",          "MSP Recovery sheet"),
+    tryFetch("hitsBeforeMarchCohort","HITS Before March Cohort sheet"),
+    tryFetch("hitsMarchCohort",      "HITS March Cohort sheet"),
+    tryFetch("hitsAprilCohort",      "HITS April Cohort sheet"),
+    tryFetch("gcv3Dump",             "GCV3 Dump sheet"),
+    tryFetch("dailyMetrics",         "Daily Metrics sheet"),
+  ]);
 
-  // Hypercare Metrics is mandatory — without it the dashboard cannot be built.
-  const h = take("hypercare");
   if (!h) {
+    // Without the main sheet we can't build the dashboard at all — surface a
+    // diagnostic error to the caller so the UI can show a clear access issue.
     const err = new Error("Hypercare Metrics sheet unreadable. " + (LAST_FETCH_ERRORS[0] && LAST_FETCH_ERRORS[0].error || ""));
     err._diagnostic = true;
     throw err;
   }
-  // Calling sheet is optional; its CSV is parsed further below (unchanged).
-  const c = take("calling");
-
-  const revived         = optional("revived",         processRevivedCSV,         (m) => ({ rows: [], lifetime: 0, weekList: [], earliest: null, latest: null, headers: [], error: m }));
-  const tasks           = optional("tasks",           processTasksCSV,           (m) => ({ rows: [], count: 0, error: m }));
-  const troubleshoot    = optional("troubleshoot",    processTroubleshootCSV,    (m) => ({ rows: [], count: 0, error: m }));
-  const chatReply       = optional("chatReply",       processChatReplyCSV,       (m) => ({ bySeller: {}, count: 0, error: m }));
-  const unassignment    = optional("unassignment",    processUnassignmentCSV,    (m) => ({ rows: [], count: 0, error: m }));
-  const remainingFunds  = optional("remainingFunds",  processRemainingFundsCSV,  (m) => ({ bySeller: {}, count: 0, error: m }));
-  const callContext     = optional("callContext",     processCallContextCSV,     (m) => ({ rows: [], count: 0, error: m }));
-  const dailyARR        = optional("dailyARR",        processDailyARRCSV,        (m) => ({ bySeller: {}, count: 0, error: m }));
-  const experimental    = optional("experimental",    processExperimentalCSV,    (m) => ({ sellerSet: new Set(), count: 0, error: m }));
-  const revivalTrack    = optional("revivalTrack",    processRevivalTrackCSV,    (m) => ({ rows: [], count: 0, error: m }));
-  const mspRecovery     = optional("mspRecovery",     processMSPRecoveryCSV,     (m) => ({ bySeller: {}, gms: [], gls: [], count: 0, error: m }));
-  const hitsMarchCohort = optional("hitsMarchCohort", processHITSCohortCSV,      (m) => ({ bySeller: {}, sellerIds: [], count: 0, error: m }));
-  const hitsAprilCohort = optional("hitsAprilCohort", (t) => processHITSCohortCSV(t, { idOnly: true }), (m) => ({ bySeller: {}, sellerIds: [], count: 0, error: m }));
-  const gcv3Dump        = optional("gcv3Dump",        processGCV3DumpCSV,        (m) => ({ bySeller: {}, count: 0, error: m }));
-  const dailyMetrics    = optional("dailyMetrics",    processDailyMetricsCSV,    (m) => ({ bySeller: {}, count: 0, error: m }));
 
   setStatus("loading", "Parsing CSVs…");
+
+  // ----- Wrap each parse in safeParse so a malformed CSV doesn't crash refresh -----
+  function safeParse(label, raw, parser, emptyValue) {
+    if (!raw) return emptyValue;
+    try { return parser(raw); }
+    catch (e) {
+      console.warn(`${label} parse failed (non-fatal):`, e.message);
+      // Don't re-add to LAST_FETCH_ERRORS — fetch succeeded; only parse failed.
+      // But surface a marker so the diagnostic banner can still mention it.
+      const fallback = Object.assign({}, emptyValue, { error: "parse: " + e.message });
+      return fallback;
+    }
+  }
+
+  const revived = safeParse("Revived", rRaw, processRevivedCSV,
+    { rows: [], lifetime: 0, weekList: [], earliest: null, latest: null, headers: [] });
+  const tasks = safeParse("Tasks", tRaw, processTasksCSV,
+    { rows: [], count: 0 });
+  const troubleshoot = safeParse("Troubleshoot", tsRaw, processTroubleshootCSV,
+    { rows: [], count: 0 });
+  const chatReply = safeParse("Chat Reply", crRaw, processChatReplyCSV,
+    { bySeller: {}, count: 0 });
+  const unassignment = safeParse("Unassignment", uRaw, processUnassignmentCSV,
+    { rows: [], count: 0 });
+  const remainingFunds = safeParse("Remaining Funds", rfRaw, processRemainingFundsCSV,
+    { bySeller: {}, count: 0 });
+  const callContext = safeParse("Call Context", ccRaw, processCallContextCSV,
+    { rows: [], count: 0 });
+  const dailyARR = safeParse("Daily ARR", arrRaw, processDailyARRCSV,
+    { bySeller: {}, count: 0 });
+  const experimental = safeParse("Experimental", exRaw, processExperimentalCSV,
+    { sellerIds: [], count: 0 });
+  const revivalTrack = safeParse("Revival Track", rtRaw, processRevivalTrackCSV,
+    { rows: [], count: 0 });
+  const mspRecovery = safeParse("MSP Recovery", msRaw, processMSPRecoveryCSV,
+    { bySeller: {}, gms: [], gls: [], count: 0 });
+  // Before March uses ID-only mode: enriched from other sheets at render time.
+  const hitsBeforeMarchCohort = safeParse("HITS Before March Cohort", hbmRaw,
+    (text) => processHITSCohortCSV(text, { idOnly: true }),
+    { bySeller: {}, sellerIds: [], count: 0 });
+  const hitsMarchCohort = safeParse("HITS March Cohort", hmRaw, processHITSCohortCSV,
+    { bySeller: {}, sellerIds: [], count: 0 });
+  // April uses ID-only mode: enriched from other sheets at render time.
+  const hitsAprilCohort = safeParse("HITS April Cohort", haRaw,
+    (text) => processHITSCohortCSV(text, { idOnly: true }),
+    { bySeller: {}, sellerIds: [], count: 0 });
+  const gcv3Dump = safeParse("GCV3 Dump", gcRaw, processGCV3DumpCSV,
+    { bySeller: {}, count: 0 });
+  const dailyMetrics = safeParse("Daily Metrics", dmRaw, processDailyMetricsCSV,
+    { bySeller: {}, count: 0 });
   const hyp = processHypercareCSV(h);
   let calls;
   if (c) {
@@ -3149,6 +3274,7 @@ async function fetchSheets() {
   data.experimental = experimental;
   data.revivalTrack = revivalTrack;
   data.mspRecovery = mspRecovery;
+  data.hitsBeforeMarchCohort = hitsBeforeMarchCohort;
   data.hitsMarchCohort = hitsMarchCohort;
   data.hitsAprilCohort = hitsAprilCohort;
   data.gcv3Dump = gcv3Dump;
@@ -3167,6 +3293,7 @@ async function refresh() {
     const payload = await fetchSheets();
     DATA = payload.mkt; REVIVAL = payload.revival; SCALING = payload.scaling || null; CACHED_PAYLOAD = payload;
     _EXPERIMENTAL_SET = null;  // force rebuild on next render
+    _PQ_BY_SELLER = null;
     META.lastFetch = Date.now();
     saveCache(payload);
     renderAll(); revRenderAll(); renderScaling();
@@ -4058,13 +4185,28 @@ function normUrl(s) {
   if (/^https?:\/\//i.test(v)) return v;
   return "https://" + v.replace(/^\/+/, "");
 }
-// Renders the seller ID with an optional Experimental tag below it.
+// Renders the seller ID with optional small tags below it:
+//   • Experimental (from Experimental Sellers sheet)
+//   • Last 15d PQ score and Lifetime PQ score (from Daily Metrics sheet cols K/L)
 // Use this anywhere `<td class="id">${sid}</td>` was used previously.
 function sellerIdCell(sid) {
-  const tag = isExperimentalSeller(sid)
-    ? `<div><span class="exp-tag">Experimental</span></div>`
+  const tags = [];
+  if (isExperimentalSeller(sid)) tags.push(`<span class="exp-tag">Experimental</span>`);
+  const pq = pqScoresForSeller(sid);
+  if (pq) {
+    if (pq.fifteen_days != null) {
+      const c = _pqColor(pq.fifteen_days);
+      tags.push(`<span class="pq-tag" style="background:${c.bg};color:${c.fg};border-color:${c.bd};" title="Last 15 days PQ Score">15d PQ ${Math.round(pq.fifteen_days)}</span>`);
+    }
+    if (pq.lifetime != null) {
+      const c = _pqColor(pq.lifetime);
+      tags.push(`<span class="pq-tag" style="background:${c.bg};color:${c.fg};border-color:${c.bd};" title="Lifetime PQ Score">LT PQ ${Math.round(pq.lifetime)}</span>`);
+    }
+  }
+  const tagRow = tags.length
+    ? `<div class="seller-id-tags">${tags.join('')}</div>`
     : '';
-  return `<td class="id">${escHtml(sid)}${tag}</td>`;
+  return `<td class="id">${escHtml(sid)}${tagRow}</td>`;
 }
 // Strip JSON-ish wrappers like {"shopdeckActionable":"…"} or ({...}) to surface
 // only the human-readable action text. Also drops a leading "ShopDeck " brand
@@ -4557,8 +4699,9 @@ let hitsView   = "overview"; // "overview" | "bucket" | "potential" | "objective
 function _hitsCohortData() {
   const p = (typeof CACHED_PAYLOAD !== 'undefined' && CACHED_PAYLOAD) ? CACHED_PAYLOAD : null;
   if (!p) return null;
-  if (hitsCohort === "march") return p.hitsMarchCohort;
-  if (hitsCohort === "april") return p.hitsAprilCohort;
+  if (hitsCohort === "before_march") return p.hitsBeforeMarchCohort;
+  if (hitsCohort === "march")        return p.hitsMarchCohort;
+  if (hitsCohort === "april")        return p.hitsAprilCohort;
   return null;
 }
 function _hitsPNLData() {
@@ -5068,6 +5211,7 @@ function renderHITSRecovery() {
         <div style="display:flex;align-items:center;gap:10px;">
           <label class="dr-picker-label">Cohort</label>
           <select id="hits-cohort" class="dr-select" style="min-width:240px;">
+            <option value="before_march"${hitsCohort==='before_march'?' selected':''}>Before March 2026 Golive cohort</option>
             <option value="march"${hitsCohort==='march'?' selected':''}>March 2026 Golive cohort</option>
             <option value="april"${hitsCohort==='april'?' selected':''}>April 2026 Golive cohort</option>
             <option value="" disabled>— Jan/Feb/May (coming soon) —</option>
