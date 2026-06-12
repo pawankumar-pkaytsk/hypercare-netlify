@@ -530,11 +530,12 @@
   }
   .ts-action-tip {
     opacity: 0; pointer-events: none; visibility: hidden;
+    /* Default position when un-portaled; JS overrides to position:fixed on open */
     position: absolute; top: 100%; left: 50%; transform: translate(-50%, -4px);
-    margin-top: 10px; z-index: 9999;
+    margin-top: 10px; z-index: 99999;
     min-width: 280px; max-width: 460px; padding: 28px 16px 14px 16px;
-    /* Fully opaque solid background — no blur — readable over any chip behind it */
-    background: #0e1428;
+    /* Fully opaque solid background — no blur, no transparency, no inheritance issues */
+    background-color: #0e1428;
     /* Belt-and-braces: an extra opaque layer painted underneath via inset shadow */
     box-shadow:
       inset 0 0 0 9999px #0e1428,
@@ -545,17 +546,31 @@
     color: #f1f5fb;
     border-radius: 12px;
     border: 1px solid rgba(139,92,246,0.55);
-    /* Isolate the popup into its own stacking context so descendants stack above it correctly */
     isolation: isolate;
     font-size: 12.5px; font-weight: 400; line-height: 1.55;
     white-space: pre-wrap; word-break: break-word;
     text-align: left;
-    /* Allow text selection / copy */
     user-select: text; -webkit-user-select: text; cursor: text;
     transition: opacity var(--t-fast) var(--ease), transform var(--t-fast) var(--ease), visibility 0s linear var(--t-fast);
   }
-  /* Promote the open trigger so its popup paints above subsequent siblings (chips / triggers in next table rows) */
-  .ts-action-trigger.open { z-index: 9999 !important; position: relative; }
+  /* Solid opaque pre-layer — eliminates any possibility of bleed-through */
+  .ts-action-tip::after {
+    content: ""; position: absolute; inset: 0; z-index: -1;
+    background: #0e1428; border-radius: inherit;
+  }
+  :root[data-theme="light"] .ts-action-tip::after { background: #ffffff; }
+  /* When portaled (position:fixed via JS), override the default offsets */
+  .ts-action-tip.ts-portaled {
+    position: fixed !important;
+    top: auto; left: auto;
+    transform: translateX(-50%);
+    margin: 0;
+  }
+  .ts-action-tip.ts-portaled.ts-portaled-show {
+    opacity: 1; pointer-events: auto; visibility: visible;
+  }
+  /* Promote the open trigger as a fallback */
+  .ts-action-trigger.open { z-index: 99999 !important; position: relative; }
   :root[data-theme="light"] .ts-action-tip {
     background: #ffffff;
     color: #0f172a;
@@ -1824,14 +1839,88 @@ applyChartTheme();
 // closes any currently-open ones.
 // ============================================================
 (function _initClickTooltips() {
-  function closeAll(except) {
-    document.querySelectorAll('.ts-action-trigger.open').forEach(el => {
-      if (el !== except) el.classList.remove('open');
-    });
+  // ── BULLETPROOF PORTAL ─────────────────────────────────────────────────────
+  // The dashboard uses backdrop-filter heavily on parent containers (.card,
+  // .tbl-wrap, header, etc.). Per CSS spec, an element with backdrop-filter
+  // becomes the CONTAINING BLOCK for any descendant with position:fixed —
+  // meaning position:fixed CANNOT escape the ancestor visually. That's why
+  // earlier fixes (z-index 9999, isolation, inset shadow) couldn't help — the
+  // popup was trapped inside a blurred ancestor that was painting the
+  // chips behind it through its backdrop.
+  //
+  // The only real fix: physically detach the tip DOM node from its trigger
+  // and append it to <body>. Now it has zero backdrop-filtered ancestors and
+  // truly escapes everything. We restore the node to the trigger on close so
+  // the rest of the code (which expects tip as a child of trigger) keeps working.
+
+  // Only one tip is ever open at a time
+  let _active = null; // { trigger, tip, origNextSibling }
+
+  function positionAt(trigger, tip) {
+    const rect = trigger.getBoundingClientRect();
+    const margin = 12;
+    // Measure once visible (force layout via offsetWidth/offsetHeight)
+    tip.style.top = '0px'; tip.style.left = '-9999px';  // off-screen for measure
+    const tipW = Math.max(tip.offsetWidth || 320, 280);
+    const tipH = tip.offsetHeight || 0;
+    let centerX = rect.left + rect.width / 2;
+    const half = tipW / 2;
+    if (centerX - half < margin) centerX = half + margin;
+    if (centerX + half > window.innerWidth - margin) centerX = window.innerWidth - margin - half;
+    // Default: below trigger. Flip above if not enough room.
+    let top = rect.bottom + 10;
+    if (top + tipH + 20 > window.innerHeight && rect.top - tipH - 20 > 0) {
+      top = rect.top - 10 - tipH;
+    }
+    tip.style.top = top + 'px';
+    tip.style.left = centerX + 'px';
   }
-  // Inject a small Copy button into the tip on first open if missing
-  function ensureCopyBtn(trigger) {
+
+  function openTip(trigger) {
+    // Toggle off if same trigger clicked twice
+    if (_active && _active.trigger === trigger) { closeTip(); return; }
+    closeTip();
     const tip = trigger.querySelector('.ts-action-tip');
+    if (!tip) return;
+    const origNextSibling = tip.nextSibling;
+    // Physically move tip into <body> so NO ancestor (with backdrop-filter,
+    // overflow, transform, or stacking context) can affect it visually.
+    document.body.appendChild(tip);
+    tip.classList.add('ts-portaled');
+    trigger.classList.add('open');
+    ensureCopyBtn(tip);
+    positionAt(trigger, tip);
+    // Reveal on next frame so the position is committed before opacity transitions
+    requestAnimationFrame(() => tip.classList.add('ts-portaled-show'));
+    _active = { trigger, tip, origNextSibling };
+  }
+
+  function closeTip() {
+    if (!_active) return;
+    const { trigger, tip, origNextSibling } = _active;
+    trigger.classList.remove('open');
+    tip.classList.remove('ts-portaled', 'ts-portaled-show');
+    tip.style.top = ''; tip.style.left = '';
+    // Restore tip back into its trigger so subsequent opens find it again
+    if (origNextSibling && origNextSibling.parentNode === trigger) {
+      trigger.insertBefore(tip, origNextSibling);
+    } else {
+      trigger.appendChild(tip);
+    }
+    _active = null;
+  }
+
+  function closeAll() { closeTip(); }
+
+  // Close on scroll / resize — popup loses anchor otherwise
+  window.addEventListener('scroll', () => closeAll(), { capture: true, passive: true });
+  window.addEventListener('resize', () => closeAll(), { passive: true });
+  // Inject a small Copy button into the tip on first open if missing.
+  // Accepts either a tip element directly, or a trigger (and finds its tip).
+  function ensureCopyBtn(tipOrTrigger) {
+    const tip = tipOrTrigger.classList && tipOrTrigger.classList.contains('ts-action-tip')
+      ? tipOrTrigger
+      : tipOrTrigger.querySelector('.ts-action-tip');
     if (!tip || tip.querySelector('.ts-tip-copy')) return;
     const btn = document.createElement('button');
     btn.type = 'button';
@@ -1871,24 +1960,18 @@ applyChartTheme();
   document.addEventListener('click', (e) => {
     // Clicks INSIDE the tip body (not on the trigger pill itself): let them flow
     // through so text selection / copy / Copy button work naturally.
-    const insideTip = e.target.closest('.ts-action-tip');
-    if (insideTip) return;
+    if (e.target.closest('.ts-action-tip')) return;
     const trigger = e.target.closest('.ts-action-trigger');
     if (trigger) {
       e.stopPropagation();
       e.preventDefault();
-      const wasOpen = trigger.classList.contains('open');
-      closeAll(trigger);
-      if (!wasOpen) {
-        trigger.classList.add('open');
-        ensureCopyBtn(trigger);
-      }
+      openTip(trigger);
     } else {
-      closeAll(null);
+      closeTip();
     }
   });
   document.addEventListener('keydown', (e) => {
-    if (e.key === 'Escape') closeAll(null);
+    if (e.key === 'Escape') closeTip();
   });
 })();
 // ============================================================
