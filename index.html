@@ -646,6 +646,159 @@
     margin-top: 8px; padding-top: 8px; border-top: 1px dashed rgba(255,255,255,0.08);
   }
   :root[data-theme="light"] .camp-mini-suggestion { border-top-color: rgba(15,23,42,0.12); }
+
+  /* ============================================================
+     HOMEPAGE — floating tile launcher
+     ============================================================ */
+  .home-hero { margin: 14px 0 28px 0; text-align: center; }
+  .home-hero-eyebrow {
+    font-size: 11px; letter-spacing: 0.32em; font-weight: 700;
+    color: var(--text-soft); text-transform: uppercase;
+    margin-bottom: 14px;
+  }
+  .home-hero-title {
+    font-family: 'Sora', sans-serif; font-size: 44px; font-weight: 800;
+    letter-spacing: -0.02em; margin: 0 0 8px 0;
+    background: linear-gradient(135deg, #c7d2fe 0%, #f0abfc 60%, #a5f3fc 100%);
+    -webkit-background-clip: text; background-clip: text; -webkit-text-fill-color: transparent;
+    text-shadow: 0 0 40px rgba(139,92,246,0.30);
+  }
+  :root[data-theme="light"] .home-hero-title {
+    background: linear-gradient(135deg, #4338ca 0%, #c026d3 50%, #0891b2 100%);
+    -webkit-background-clip: text; background-clip: text; -webkit-text-fill-color: transparent;
+    text-shadow: none;
+  }
+  .home-hero-blink { color: var(--brand); animation: dotPulse 1.6s ease-in-out infinite; }
+  .home-hero-sub {
+    font-size: 14px; color: var(--text-soft); max-width: 620px; margin: 0 auto;
+    line-height: 1.6;
+  }
+  .home-grid {
+    display: grid; gap: 18px; margin-top: 14px;
+    grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+  }
+  .home-tile {
+    --tile-glow: rgba(139,92,246,0.45);
+    position: relative; overflow: hidden;
+    text-align: left; padding: 22px 24px 60px 24px;
+    border-radius: 20px;
+    background: linear-gradient(160deg, rgba(255,255,255,0.04) 0%, rgba(255,255,255,0.01) 100%);
+    border: 1px solid rgba(255,255,255,0.10);
+    color: var(--text); cursor: pointer;
+    backdrop-filter: blur(14px) saturate(140%);
+    -webkit-backdrop-filter: blur(14px) saturate(140%);
+    box-shadow:
+      0 14px 32px -16px rgba(0,0,0,0.55),
+      inset 0 0 0 1px rgba(255,255,255,0.04);
+    transition: transform 320ms cubic-bezier(0.22, 1, 0.36, 1), border-color 220ms ease, box-shadow 320ms ease, background 220ms ease;
+    animation: tileFloat 7.5s ease-in-out infinite;
+    min-height: 168px;
+  }
+  .home-tile:nth-child(2) { animation-delay: -0.5s; }
+  .home-tile:nth-child(3) { animation-delay: -1.0s; }
+  .home-tile:nth-child(4) { animation-delay: -1.5s; }
+  .home-tile:nth-child(5) { animation-delay: -2.0s; }
+  .home-tile:nth-child(6) { animation-delay: -2.5s; }
+  .home-tile:nth-child(7) { animation-delay: -3.0s; }
+  .home-tile:nth-child(8) { animation-delay: -3.5s; }
+  @keyframes tileFloat {
+    0%, 100% { transform: translateY(0) rotate(-0.15deg); }
+    50%      { transform: translateY(-6px) rotate(0.15deg); }
+  }
+  .home-tile::before {
+    content: ""; position: absolute; inset: -1px; border-radius: inherit;
+    background: radial-gradient(circle at 20% 0%, var(--tile-glow) 0%, transparent 55%);
+    opacity: 0.5; pointer-events: none; z-index: 0;
+    transition: opacity 220ms ease;
+  }
+  .home-tile:hover {
+    transform: translateY(-10px) scale(1.015);
+    border-color: var(--tile-glow);
+    box-shadow:
+      0 26px 60px -16px rgba(0,0,0,0.65),
+      0 0 0 1px var(--tile-glow),
+      0 0 80px -10px var(--tile-glow);
+    background: linear-gradient(160deg, rgba(255,255,255,0.07) 0%, rgba(255,255,255,0.02) 100%);
+  }
+  .home-tile:hover::before { opacity: 0.9; }
+  .home-tile:focus-visible { outline: 2px solid var(--brand); outline-offset: 4px; }
+  .home-tile > * { position: relative; z-index: 1; }
+  .home-tile-icon {
+    font-size: 36px; line-height: 1; margin-bottom: 12px;
+    filter: drop-shadow(0 4px 12px var(--tile-glow));
+  }
+  .home-tile-title {
+    font-family: 'Sora', sans-serif; font-size: 18px; font-weight: 700;
+    letter-spacing: -0.01em; color: var(--text); margin-bottom: 6px;
+  }
+  .home-tile-sub {
+    font-size: 12.5px; color: var(--text-soft); line-height: 1.5;
+    font-weight: 500;
+  }
+  .home-tile-arrow {
+    position: absolute; bottom: 18px; right: 22px;
+    width: 32px; height: 32px; border-radius: 50%;
+    background: var(--tile-glow); color: #fff;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 16px; font-weight: 800;
+    box-shadow: 0 0 24px -4px var(--tile-glow);
+    transition: transform 220ms ease, background 220ms ease;
+    z-index: 1;
+  }
+  .home-tile:hover .home-tile-arrow {
+    transform: translateX(4px) scale(1.1);
+  }
+  :root[data-theme="light"] .home-tile {
+    background: linear-gradient(160deg, rgba(255,255,255,0.85) 0%, rgba(255,255,255,0.55) 100%);
+    border-color: rgba(15,23,42,0.10);
+    color: var(--text);
+  }
+  :root[data-theme="light"] .home-tile-icon { filter: drop-shadow(0 4px 8px var(--tile-glow)); }
+  /* Special "🏠 Home" tab styling */
+  .tab.tab-home {
+    background: linear-gradient(135deg, rgba(99,102,241,0.18), rgba(34,211,238,0.10)) !important;
+    border-color: rgba(139,92,246,0.40) !important;
+    font-weight: 700 !important;
+  }
+  .tab.tab-home.active {
+    background: linear-gradient(135deg, rgba(99,102,241,0.32), rgba(34,211,238,0.20)) !important;
+  }
+
+  /* ============================================================
+     CREATIVES TRACKER
+     ============================================================ */
+  .crv-grid {
+    display: grid; gap: 14px; margin-bottom: 18px;
+    grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  }
+  .crv-card {
+    background: linear-gradient(135deg, rgba(244,114,182,0.10), rgba(139,92,246,0.04));
+    border: 1px solid rgba(244,114,182,0.30);
+    border-radius: 16px; padding: 18px 20px;
+    backdrop-filter: blur(10px);
+    cursor: pointer;
+    transition: transform 200ms ease, border-color 200ms ease, box-shadow 200ms ease;
+  }
+  .crv-card.crv-non-click { cursor: default; }
+  .crv-card:not(.crv-non-click):hover {
+    transform: translateY(-4px);
+    border-color: rgba(244,114,182,0.60);
+    box-shadow: 0 18px 40px -16px rgba(244,114,182,0.40);
+  }
+  :root[data-theme="light"] .crv-card {
+    background: linear-gradient(135deg, rgba(244,114,182,0.10), rgba(139,92,246,0.05));
+    border-color: rgba(192,38,211,0.30);
+  }
+  .crv-card-label { font-size: 11px; color: var(--text-soft); letter-spacing: 0.10em; text-transform: uppercase; font-weight: 700; margin-bottom: 6px; }
+  .crv-card-value { font-family: 'Sora', sans-serif; font-size: 36px; font-weight: 800; color: var(--text); line-height: 1.0; }
+  .crv-card-sub   { font-size: 11.5px; color: var(--text-muted); margin-top: 6px; }
+  .crv-status-pill {
+    display: inline-block; padding: 3px 10px; border-radius: 999px;
+    font-size: 11px; font-weight: 700;
+  }
+  .crv-status-pending   { background: rgba(251,191,36,0.18); color: #fcd34d; border: 1px solid rgba(251,191,36,0.40); }
+  .crv-status-completed { background: rgba(52,211,153,0.18); color: var(--success); border: 1px solid rgba(52,211,153,0.40); }
+  :root[data-theme="light"] .crv-status-pending { color: #b45309; }
   /* CLICK-TO-OPEN: only show when .open class is applied (no longer hover-driven) */
   .ts-action-trigger.open .ts-action-tip {
     opacity: 1; pointer-events: auto; visibility: visible; transform: translate(-50%, 0);
@@ -1669,14 +1822,75 @@
 
   <div id="fetch-errors-banner" style="display:none;"></div>
 
-  <div class="tabs" role="tablist">
+  <div class="tabs" role="tablist" id="top-tabs">
+    <button class="tab tab-home" data-team="Home" title="Home" aria-label="Home">🏠 <span style="font-weight:700;">Home</span></button>
     <button class="tab" data-team="Scaling">Scaling <span class="count" id="cnt-Scaling">1</span></button>
-    <button class="tab active" data-team="Marketing">Marketing (Hypercare) <span class="count" id="cnt-Marketing">5</span></button>
+    <button class="tab" data-team="Marketing">Marketing (Hypercare) <span class="count" id="cnt-Marketing">5</span></button>
     <button class="tab" data-team="Unassignment">Unassignment Tracker <span class="count" id="cnt-Unassignment">—</span></button>
     <button class="tab" data-team="Revival">Revival <span class="count" id="cnt-Revival">3</span></button>
     <button class="tab" data-team="Daily">Daily Report <span class="count" id="cnt-Daily">📊</span></button>
     <button class="tab" data-team="CallHistory">Call History <span class="count" id="cnt-CallHistory">🔍</span></button>
     <button class="tab" data-team="HITSRecovery">HITS Recovery <span class="count" id="cnt-HITSRecovery">🎯</span></button>
+    <button class="tab" data-team="Creatives">Creatives Tracker <span class="count" id="cnt-Creatives">🎨</span></button>
+  </div>
+
+  <!-- HOMEPAGE — floating tile launcher. Default-active. Clicking a tile opens its section. -->
+  <div id="view-Home" class="view active">
+    <div class="home-hero">
+      <div class="home-hero-eyebrow">SHOPDECK · HYPERCARE COMMAND CENTER</div>
+      <h1 class="home-hero-title">Welcome back<span class="home-hero-blink">.</span></h1>
+      <p class="home-hero-sub">Choose a workspace to dive in. Everything below pulls live from the latest Google Sheets — refresh whenever you need fresh numbers.</p>
+    </div>
+    <div class="home-grid" id="home-grid">
+      <button class="home-tile" data-team="Scaling" style="--tile-glow:rgba(99,102,241,0.45);">
+        <div class="home-tile-icon">🚀</div>
+        <div class="home-tile-title">Scaling</div>
+        <div class="home-tile-sub">Seller view · Bucket health · Campaign track · ARR view · ARR recovery</div>
+        <div class="home-tile-arrow">→</div>
+      </button>
+      <button class="home-tile" data-team="Marketing" style="--tile-glow:rgba(34,211,238,0.45);">
+        <div class="home-tile-icon">📣</div>
+        <div class="home-tile-title">Marketing (Hypercare)</div>
+        <div class="home-tile-sub">5 GCs · Buckets · Calls · Tasks · Campaign track · Compliance</div>
+        <div class="home-tile-arrow">→</div>
+      </button>
+      <button class="home-tile" data-team="Unassignment" style="--tile-glow:rgba(251,191,36,0.45);">
+        <div class="home-tile-icon">📋</div>
+        <div class="home-tile-title">Unassignment Tracker</div>
+        <div class="home-tile-sub">Date / week filter · Bucket drilldown · Pending titles</div>
+        <div class="home-tile-arrow">→</div>
+      </button>
+      <button class="home-tile" data-team="Revival" style="--tile-glow:rgba(248,113,113,0.45);">
+        <div class="home-tile-icon">💫</div>
+        <div class="home-tile-title">Revival</div>
+        <div class="home-tile-sub">3 GCs · Calling · Tasks · Efficiency · Revival compliance</div>
+        <div class="home-tile-arrow">→</div>
+      </button>
+      <button class="home-tile" data-team="Daily" style="--tile-glow:rgba(52,211,153,0.45);">
+        <div class="home-tile-icon">🌅</div>
+        <div class="home-tile-title">Daily Report</div>
+        <div class="home-tile-sub">Morning · EOD · Consolidated · per-person drilldown</div>
+        <div class="home-tile-arrow">→</div>
+      </button>
+      <button class="home-tile" data-team="CallHistory" style="--tile-glow:rgba(139,92,246,0.45);">
+        <div class="home-tile-icon">📞</div>
+        <div class="home-tile-title">Call History</div>
+        <div class="home-tile-sub">Seller search · Date range · Conversation context</div>
+        <div class="home-tile-arrow">→</div>
+      </button>
+      <button class="home-tile" data-team="HITSRecovery" style="--tile-glow:rgba(192,132,252,0.45);">
+        <div class="home-tile-icon">🎯</div>
+        <div class="home-tile-title">HITS Recovery</div>
+        <div class="home-tile-sub">3 cohorts · Bucket health · Funnel · Revive · Attention list</div>
+        <div class="home-tile-arrow">→</div>
+      </button>
+      <button class="home-tile" data-team="Creatives" style="--tile-glow:rgba(244,114,182,0.45);">
+        <div class="home-tile-icon">🎨</div>
+        <div class="home-tile-title">Creatives Tracker</div>
+        <div class="home-tile-sub">Srabanika Das · Pending · Done today / 7d · Drive links</div>
+        <div class="home-tile-arrow">→</div>
+      </button>
+    </div>
   </div>
 
   <div id="view-Scaling" class="view">
@@ -1713,7 +1927,7 @@
     <div id="sub-sca-camp"       class="subview"></div>
   </div>
 
-  <div id="view-Marketing" class="view active">
+  <div id="view-Marketing" class="view">
     <div class="subtabs" id="mkt-subtabs">
       <button class="subtab active" data-sub="seller">Seller View</button>
       <button class="subtab" data-sub="bucket">Bucket Health</button>
@@ -1771,6 +1985,7 @@
   <div id="view-CallHistory" class="view"></div>
 
   <div id="view-HITSRecovery" class="view"></div>
+  <div id="view-Creatives" class="view"></div>
 
   <p class="footer-note">
     Bucket rules — &gt;-20: PNL W-1 &gt; -20 + Spend W-1 &gt; 3540 · Potential Hit: PNL ≥ 5 + Spend &gt; 3540 ·
@@ -2012,6 +2227,7 @@ const SHEETS = {
   hitsAprilCohort:       { fileId: "1pvQ4ewHIta4iqn3GCRFgGIQsKPLURaoY3mtShsm_7ms", tab: "Dump" },
   gcv3Dump:       { fileId: "1ayKSKlZa6J3ueFqco4XOnqog9X1VcA9fKm7D5wfRqf8",  tab: "Auto_Dump" },
   dailyMetrics:   { fileId: "19W3KsIIWgp2Aw5h4DzXPMYpAYFrJ7FHA2zNC8ppb1E0",  tab: "MetricsTrack" },
+  creatives:      { fileId: "1C356r1ZDhsyvlubTpxms949g03gKGsWjMEx0DD7GtPk",  tab: "Tracker" },
 };
 // Healthy thresholds for actionable diagnosis — used by HITS Recovery views.
 // User-supplied (Jun 2026): Spend/GMV ≤ 15, RTO ≤ 25, COGS ≤ 35.
@@ -2715,6 +2931,46 @@ function _pqColor(v) {
   return                              { bg: 'rgba(248,113,113,0.16)', fg: '#fca5a5', bd: 'rgba(248,113,113,0.32)' };
 }
 
+// Creatives Tracker — positional schema (per user spec):
+//   A=date, J=status (Pending/Completed), K=Final Drive Link
+// We retain ALL columns in `raw` so the drilldown can render the full row.
+function processCreativesCSV(text) {
+  const rows = parseCSV(text);
+  if (rows.length < 1) throw new Error("Creatives Tracker CSV too short");
+  const headers = rows[0] || [];
+  const out = [];
+  for (let i = 1; i < rows.length; i++) {
+    const r = rows[i];
+    if (!r) continue;
+    const dateStr = norm(r[0]);                  // column A
+    if (!dateStr) continue;                       // skip blank rows
+    const d = parseDate(dateStr);
+    const dateIso = d ? localISODate(d) : null;
+    const statusRaw = norm(r[9] || "").toLowerCase();  // column J
+    const status = /complete/i.test(statusRaw) ? "Completed"
+                 : /pending|wip|in[-\s]?progress/i.test(statusRaw) ? "Pending"
+                 : (norm(r[9]) || "—");
+    const driveLink = norm(r[10] || "");          // column K
+    out.push({
+      row_index: i + 1, // 1-indexed including header (matches sheet row number)
+      date_str: dateStr,
+      date_iso: dateIso,
+      ts: d ? d.getTime() : null,
+      status,
+      status_raw: norm(r[9]),
+      drive_link: driveLink,
+      has_drive: !!(driveLink && /^https?:/i.test(driveLink)),
+      raw: r,
+      headers,
+    });
+  }
+  // Sort newest first
+  out.sort((a, b) => (b.ts || 0) - (a.ts || 0));
+  const pending  = out.filter(r => r.status === "Pending" && r.date_iso).length;
+  const completed = out.filter(r => r.status === "Completed" && r.has_drive).length;
+  return { rows: out, headers, count: out.length, pending, completed };
+}
+
 function processMSPRecoveryCSV(text) {
   // Positional schema (user spec): A=seller_id, B=seller_name, C=GL, D=GM
   const rows = parseCSV(text);
@@ -3367,7 +3623,7 @@ async function fetchSheets() {
   const [
     h, c, rRaw, tRaw, tsRaw, crRaw, uRaw, rfRaw,
     ccRaw, arrRaw, exRaw, rtRaw, msRaw,
-    hbmRaw, hmRaw, haRaw, gcRaw, dmRaw,
+    hbmRaw, hmRaw, haRaw, gcRaw, dmRaw, crvRaw,
   ] = await Promise.all([
     tryFetch("hypercare",            "Hypercare Metrics"),
     tryFetch("calling",              "Calling sheet"),
@@ -3387,6 +3643,7 @@ async function fetchSheets() {
     tryFetch("hitsAprilCohort",      "HITS April Cohort sheet"),
     tryFetch("gcv3Dump",             "GCV3 Dump sheet"),
     tryFetch("dailyMetrics",         "Daily Metrics sheet"),
+    tryFetch("creatives",            "Creatives Tracker sheet"),
   ]);
 
   if (!h) {
@@ -3448,6 +3705,8 @@ async function fetchSheets() {
     { bySeller: {}, count: 0 });
   const dailyMetrics = safeParse("Daily Metrics", dmRaw, processDailyMetricsCSV,
     { bySeller: {}, count: 0 });
+  const creatives = safeParse("Creatives Tracker", crvRaw, processCreativesCSV,
+    { rows: [], count: 0, pending: 0, completed: 0 });
   const hyp = processHypercareCSV(h);
   let calls;
   if (c) {
@@ -3471,6 +3730,7 @@ async function fetchSheets() {
   data.hitsAprilCohort = hitsAprilCohort;
   data.gcv3Dump = gcv3Dump;
   data.dailyMetrics = dailyMetrics;
+  data.creatives = creatives;
   return data;
 }
 async function refresh() {
@@ -5228,6 +5488,239 @@ function buildHITSSellerRows() {
     funds_addition_required: rows.filter(r => r.funds_addition_required).length,
   };
   return { rows, totals };
+}
+
+// ============================================================
+//                    Creatives Tracker
+// ============================================================
+// Single GC (Srabanika Das). Inputs from Creatives Tracker sheet.
+// Pending = column A not blank AND column J = Pending
+// Completed = column A not blank AND column J = Completed AND column K has a drive link
+// Filterable by date range. Pending count is clickable → drilldown popup + CSV.
+// "New entries today" alert highlights anything created today.
+const CREATIVES_OWNER = { name: "Srabanika Das", email: "" };  // email left blank — user fills via Apps Script
+let _crvDateFilter = "all";       // "today" | "yesterday" | "7d" | "30d" | "range" | "all"
+let _crvFromIso = null;
+let _crvToIso = null;
+
+function _crvFilterRows(rows, mode) {
+  const today = new Date(); today.setHours(0,0,0,0);
+  const todayIso = localISODate(today);
+  const yesterdayIso = localISODate(new Date(today.getTime() - 86400000));
+  const sevenAgoIso = localISODate(new Date(today.getTime() - 6 * 86400000));
+  const thirtyAgoIso = localISODate(new Date(today.getTime() - 29 * 86400000));
+  return rows.filter(r => {
+    if (!r.date_iso) return false;
+    if (mode === "today")     return r.date_iso === todayIso;
+    if (mode === "yesterday") return r.date_iso === yesterdayIso;
+    if (mode === "7d")        return r.date_iso >= sevenAgoIso;
+    if (mode === "30d")       return r.date_iso >= thirtyAgoIso;
+    if (mode === "range") {
+      const okFrom = !_crvFromIso || r.date_iso >= _crvFromIso;
+      const okTo   = !_crvToIso   || r.date_iso <= _crvToIso;
+      return okFrom && okTo;
+    }
+    return true; // "all"
+  });
+}
+
+function renderCreativesTracker() {
+  const host = document.getElementById('view-Creatives');
+  if (!host) return;
+  const crv = DATA && DATA.creatives;
+  if (!crv) {
+    host.innerHTML = `<div class="card"><h3>Creatives Tracker <span class="pending-tag">LOADING</span></h3><div class="pending-card"><h4>Loading creatives data…</h4></div></div>`;
+    return;
+  }
+  if (crv.error) {
+    host.innerHTML = `<div class="card"><h3>Creatives Tracker <span class="pending-tag">FETCH FAILED</span></h3>
+      <div class="pending-card"><h4>Unable to read the Creatives Tracker sheet.</h4>
+        <p style="color:#cbd5e1;font-size:13px;">${escHtml(String(crv.error).slice(0,300))}</p>
+        <p style="font-size:12px;color:#94a3b8;">File: <code>1C356r1ZDhsyvlubTpxms949g03gKGsWjMEx0DD7GtPk</code> · Tab: <code>Tracker</code>. Make sure it's shared with the signed-in account.</p>
+      </div></div>`;
+    return;
+  }
+
+  const allRows = crv.rows || [];
+  // Pending pool — all non-blank, status Pending
+  const pendingRows = allRows.filter(r => r.status === "Pending");
+  // Completed pool — non-blank, status Completed, drive link present
+  const completedRows = allRows.filter(r => r.status === "Completed" && r.has_drive);
+
+  const todayIso = localISODate(new Date());
+  const yesterdayIso = localISODate(new Date(Date.now() - 86400000));
+  const sevenAgoIso = localISODate(new Date(Date.now() - 6 * 86400000));
+
+  const doneToday    = completedRows.filter(r => r.date_iso === todayIso).length;
+  const doneYesterday= completedRows.filter(r => r.date_iso === yesterdayIso).length;
+  const done7d       = completedRows.filter(r => r.date_iso >= sevenAgoIso).length;
+  const newToday     = allRows.filter(r => r.date_iso === todayIso).length;
+
+  // Apply current filter to the Completed list for the table
+  const filteredCompleted = _crvFilterRows(completedRows, _crvDateFilter);
+  const filteredAll = _crvFilterRows(allRows, _crvDateFilter);
+
+  const filterChip = (id, label, dot) => `<button class="subtab${_crvDateFilter===id?' active':''}" data-crv-filter="${id}">${dot?dot+' ':''}${escHtml(label)}</button>`;
+
+  const fromVal = _crvFromIso ? escHtml(_crvFromIso) : '';
+  const toVal   = _crvToIso   ? escHtml(_crvToIso)   : '';
+
+  const newTodayBanner = newToday > 0
+    ? `<div style="margin-bottom:16px;padding:14px 18px;border-radius:14px;background:linear-gradient(135deg,rgba(244,114,182,0.16),rgba(139,92,246,0.10));border:1px solid rgba(244,114,182,0.40);display:flex;align-items:center;gap:14px;">
+        <div style="font-size:24px;">🔔</div>
+        <div style="flex:1;">
+          <div style="font-weight:700;color:var(--text);font-size:14px;">${newToday} new entr${newToday===1?'y':'ies'} today</div>
+          <div style="font-size:12px;color:var(--text-soft);margin-top:2px;">${escHtml(CREATIVES_OWNER.name)} should be notified via the Apps Script trigger (see Settings).</div>
+        </div>
+        <button class="refresh-btn" id="crv-notify-now" style="white-space:nowrap;">📧 Send reminder</button>
+      </div>`
+    : '';
+
+  host.innerHTML = `<div class="card" style="background:linear-gradient(135deg,rgba(244,114,182,0.10),rgba(139,92,246,0.04));border-color:rgba(244,114,182,0.30);">
+      <h3 style="margin:0 0 6px 0;font-family:'Sora',sans-serif;font-size:20px;">🎨 Creatives Tracker</h3>
+      <p style="margin:0 0 12px 0;font-size:12.5px;color:var(--text-soft);line-height:1.55;">
+        Owner: <b>${escHtml(CREATIVES_OWNER.name)}</b> · Source:
+        <a href="https://docs.google.com/spreadsheets/d/1C356r1ZDhsyvlubTpxms949g03gKGsWjMEx0DD7GtPk" target="_blank" rel="noopener" style="color:var(--brand-soft);">Tracker sheet ↗</a>
+        · ${crv.count} total row${crv.count===1?'':'s'} · <span class="src-tag">LIVE</span>
+      </p>
+    </div>
+    ${newTodayBanner}
+    <div class="crv-grid">
+      <div class="crv-card" id="crv-card-pending" style="border-color:rgba(251,191,36,0.40);background:linear-gradient(135deg,rgba(251,191,36,0.12),rgba(244,114,182,0.04));">
+        <div class="crv-card-label">⏳ Pending Accounts</div>
+        <div class="crv-card-value" style="color:#fcd34d;">${pendingRows.length}</div>
+        <div class="crv-card-sub">Click to drill down + download CSV</div>
+      </div>
+      <div class="crv-card crv-non-click">
+        <div class="crv-card-label">✅ Done Today</div>
+        <div class="crv-card-value" style="color:var(--success);">${doneToday}</div>
+        <div class="crv-card-sub">Completed creatives w/ drive link</div>
+      </div>
+      <div class="crv-card crv-non-click">
+        <div class="crv-card-label">📆 Done Yesterday</div>
+        <div class="crv-card-value">${doneYesterday}</div>
+        <div class="crv-card-sub">Day-on-day comparison</div>
+      </div>
+      <div class="crv-card crv-non-click">
+        <div class="crv-card-label">📈 Done in Last 7d</div>
+        <div class="crv-card-value">${done7d}</div>
+        <div class="crv-card-sub">Rolling 7-day output</div>
+      </div>
+    </div>
+
+    <div class="card">
+      <h3>Filter creatives by date</h3>
+      <div class="subtabs" style="margin-bottom:10px;">
+        ${filterChip("today",     "Today",         "📅")}
+        ${filterChip("yesterday", "Yesterday",     "🗓️")}
+        ${filterChip("7d",        "Last 7 days",   "⏳")}
+        ${filterChip("30d",       "Last 30 days",  "📆")}
+        ${filterChip("range",     "Custom range",  "🎯")}
+        ${filterChip("all",       "All time",      "♾️")}
+      </div>
+      <div id="crv-range-row" style="${_crvDateFilter==='range'?'':'display:none;'}gap:10px;align-items:center;flex-wrap:wrap;margin-bottom:14px;display:${_crvDateFilter==='range'?'flex':'none'};">
+        <label style="font-size:12px;color:var(--text-soft);font-weight:600;">From:</label>
+        <input type="date" id="crv-from" value="${fromVal}" style="padding:6px 10px;border:1px solid var(--border-strong);border-radius:8px;font-size:13px;">
+        <label style="font-size:12px;color:var(--text-soft);font-weight:600;">To:</label>
+        <input type="date" id="crv-to" value="${toVal}" style="padding:6px 10px;border:1px solid var(--border-strong);border-radius:8px;font-size:13px;">
+        <button type="button" class="refresh-btn" id="crv-range-reset">Reset</button>
+      </div>
+
+      <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-bottom:10px;">
+        <span style="font-weight:600;font-size:13px;">Filtered results:</span>
+        <span style="color:var(--text-soft);font-size:12.5px;">${filteredAll.length} total · ${filteredCompleted.length} completed · ${_crvFilterRows(pendingRows, _crvDateFilter).length} pending</span>
+        <button type="button" class="refresh-btn" id="crv-export-filtered" style="margin-left:auto;">📥 Export filtered (CSV)</button>
+      </div>
+
+      <div class="tbl-wrap" style="max-height:62vh;">
+        <table class="t">
+          <thead><tr>
+            <th>Date</th><th>Status</th><th>Drive Link</th><th>Row #</th>
+          </tr></thead>
+          <tbody>${filteredAll.length ? filteredAll.map(r => `<tr>
+            <td>${escHtml(r.date_str || '—')}</td>
+            <td><span class="crv-status-pill ${r.status==='Pending'?'crv-status-pending':r.status==='Completed'?'crv-status-completed':''}">${escHtml(r.status)}</span></td>
+            <td>${r.has_drive ? `<a href="${escHtml(r.drive_link)}" target="_blank" rel="noopener" style="color:var(--brand-soft);font-size:11.5px;">Open drive link ↗</a>` : '<span class="empty-cell">—</span>'}</td>
+            <td class="num" style="color:var(--text-muted);font-family:'JetBrains Mono',monospace;font-size:11px;">${r.row_index}</td>
+          </tr>`).join('') : `<tr><td colspan="4" style="text-align:center;color:#94a3b8;padding:24px;">No creatives match the current filter.</td></tr>`}</tbody>
+        </table>
+      </div>
+    </div>`;
+
+  // Wire interactions
+  document.querySelectorAll('[data-crv-filter]').forEach(b => {
+    b.addEventListener('click', () => { _crvDateFilter = b.dataset.crvFilter; renderCreativesTracker(); });
+  });
+  const fromInp = document.getElementById('crv-from');
+  const toInp   = document.getElementById('crv-to');
+  if (fromInp) fromInp.addEventListener('change', e => { _crvFromIso = e.target.value || null; renderCreativesTracker(); });
+  if (toInp)   toInp.addEventListener('change',   e => { _crvToIso   = e.target.value || null; renderCreativesTracker(); });
+  const rangeReset = document.getElementById('crv-range-reset');
+  if (rangeReset) rangeReset.addEventListener('click', () => { _crvFromIso = null; _crvToIso = null; renderCreativesTracker(); });
+
+  // Pending card → open drilldown
+  const pendingCard = document.getElementById('crv-card-pending');
+  if (pendingCard) pendingCard.addEventListener('click', () => _crvOpenPendingDrilldown(pendingRows));
+
+  // Filtered CSV export
+  const exportBtn = document.getElementById('crv-export-filtered');
+  if (exportBtn) exportBtn.addEventListener('click', () => _crvExportCSV(filteredAll, `creatives-filtered-${_crvDateFilter}-${localISODate(new Date())}.csv`));
+
+  // Reminder button — opens default mail client pre-filled
+  const remindBtn = document.getElementById('crv-notify-now');
+  if (remindBtn) remindBtn.addEventListener('click', () => {
+    const subject = encodeURIComponent(`Creatives Tracker — ${newToday} new task${newToday===1?'':'s'} today (${todayIso})`);
+    const today = allRows.filter(r => r.date_iso === todayIso);
+    const body = encodeURIComponent(
+      `Hi Srabanika,\n\nYou have ${newToday} new creative task${newToday===1?'':'s'} added today (${todayIso}).\n\nPlease review them in the Creatives Tracker sheet:\nhttps://docs.google.com/spreadsheets/d/1C356r1ZDhsyvlubTpxms949g03gKGsWjMEx0DD7GtPk\n\nThanks!`
+    );
+    window.location.href = `mailto:?subject=${subject}&body=${body}`;
+  });
+}
+
+function _crvOpenPendingDrilldown(pendingRows) {
+  const modal = document.getElementById('drill-modal');
+  const title = document.getElementById('drill-title');
+  const body  = document.getElementById('drill-body');
+  if (!modal || !title || !body) return;
+  title.innerHTML = `⏳ Pending Creatives <span style="color:var(--text-soft);font-weight:500;font-size:13px;">(${pendingRows.length})</span>`;
+  const rows = pendingRows.map(r => `<tr>
+    <td>${escHtml(r.date_str || '—')}</td>
+    <td><span class="crv-status-pill crv-status-pending">Pending</span></td>
+    <td>${r.has_drive ? `<a href="${escHtml(r.drive_link)}" target="_blank" rel="noopener" style="color:var(--brand-soft);">Open ↗</a>` : '<span class="empty-cell">—</span>'}</td>
+    <td class="num" style="color:var(--text-muted);font-family:'JetBrains Mono',monospace;font-size:11px;">${r.row_index}</td>
+  </tr>`).join('');
+  body.innerHTML = `<div style="display:flex;justify-content:flex-end;margin-bottom:10px;">
+      <button type="button" class="refresh-btn" id="crv-drill-export">📥 Download CSV</button>
+    </div>
+    <div class="tbl-wrap" style="max-height:62vh;">
+      <table class="t">
+        <thead><tr><th>Date</th><th>Status</th><th>Drive Link</th><th>Sheet Row</th></tr></thead>
+        <tbody>${rows || `<tr><td colspan="4" style="text-align:center;color:#94a3b8;padding:24px;">No pending creatives 🎉</td></tr>`}</tbody>
+      </table>
+    </div>`;
+  modal.classList.add('open');
+  const dlBtn = document.getElementById('crv-drill-export');
+  if (dlBtn) dlBtn.addEventListener('click', () => _crvExportCSV(pendingRows, `creatives-pending-${localISODate(new Date())}.csv`));
+}
+
+function _crvExportCSV(rows, filename) {
+  const esc = (v) => {
+    const s = String(v == null ? '' : v);
+    return /[",\n]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s;
+  };
+  const lines = [
+    ["Sheet Row","Date","Status","Drive Link"].join(",")
+  ];
+  rows.forEach(r => {
+    lines.push([r.row_index, r.date_str || '', r.status, r.drive_link || ''].map(esc).join(','));
+  });
+  const blob = new Blob([lines.join('\n')], { type: 'text/csv' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url; a.download = filename;
+  document.body.appendChild(a); a.click(); document.body.removeChild(a);
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
 }
 
 function renderHITSRecovery() {
@@ -8247,16 +8740,27 @@ function exportUnassignmentCSV(rows, bucket, weekFilter) {
   setTimeout(() => URL.revokeObjectURL(url), 1000);
 }
 
+// Switch the active workspace. Used by both the top tab bar AND the homepage tiles.
+function activateTeam(team) {
+  document.querySelectorAll(".tabs .tab").forEach(b => b.classList.remove("active"));
+  document.querySelectorAll("#view-Home, #view-Scaling, #view-Marketing, #view-Unassignment, #view-Revival, #view-Daily, #view-CallHistory, #view-HITSRecovery, #view-Creatives").forEach(v => v.classList.remove("active"));
+  const tabBtn = document.querySelector(`.tabs .tab[data-team="${team}"]`);
+  if (tabBtn) tabBtn.classList.add("active");
+  const view = document.getElementById(`view-${team}`);
+  if (view) view.classList.add("active");
+  // Smooth-scroll to top whenever the workspace switches
+  window.scrollTo({ top: 0, behavior: "smooth" });
+  if (team === "Daily") renderDailyReport();
+  if (team === "CallHistory") renderCallHistory();
+  if (team === "HITSRecovery") renderHITSRecovery();
+  if (team === "Creatives") renderCreativesTracker();
+}
 document.querySelectorAll(".tabs .tab").forEach(btn => {
-  btn.addEventListener("click", () => {
-    document.querySelectorAll(".tabs .tab").forEach(b => b.classList.remove("active"));
-    document.querySelectorAll("#view-Scaling, #view-Marketing, #view-Unassignment, #view-Revival, #view-Daily, #view-CallHistory, #view-HITSRecovery").forEach(v => v.classList.remove("active"));
-    btn.classList.add("active");
-    document.getElementById(`view-${btn.dataset.team}`).classList.add("active");
-    if (btn.dataset.team === "Daily") renderDailyReport();
-    if (btn.dataset.team === "CallHistory") renderCallHistory();
-    if (btn.dataset.team === "HITSRecovery") renderHITSRecovery();
-  });
+  btn.addEventListener("click", () => activateTeam(btn.dataset.team));
+});
+// Homepage tile launcher — clicking any tile activates that workspace
+document.querySelectorAll("#home-grid .home-tile").forEach(tile => {
+  tile.addEventListener("click", () => activateTeam(tile.dataset.team));
 });
 document.querySelectorAll('#mkt-subtabs .subtab').forEach(btn => btn.addEventListener('click', () => {
   document.querySelectorAll('#mkt-subtabs .subtab').forEach(b => b.classList.remove('active'));
