@@ -648,6 +648,151 @@
   :root[data-theme="light"] .camp-mini-suggestion { border-top-color: rgba(15,23,42,0.12); }
 
   /* ============================================================
+     POST-SIGN-IN BOOT LOADER (0 → 100% progress)
+     ============================================================ */
+  .boot-loader {
+    position: fixed; inset: 0; z-index: 9000;
+    display: flex; align-items: center; justify-content: center;
+    opacity: 0; pointer-events: none; visibility: hidden;
+    transition: opacity 320ms cubic-bezier(0.22, 1, 0.36, 1), visibility 0s linear 320ms;
+  }
+  .boot-loader.show {
+    opacity: 1; pointer-events: auto; visibility: visible;
+    transition: opacity 220ms ease-out, visibility 0s;
+  }
+  .boot-loader-bg {
+    position: absolute; inset: 0;
+    background:
+      radial-gradient(circle at 12% 18%, rgba(99,102,241,0.30), transparent 55%),
+      radial-gradient(circle at 88% 82%, rgba(244,114,182,0.22), transparent 55%),
+      radial-gradient(circle at 50% 50%, rgba(34,211,238,0.10), transparent 65%),
+      #08091a;
+    backdrop-filter: blur(40px);
+    -webkit-backdrop-filter: blur(40px);
+  }
+  :root[data-theme="light"] .boot-loader-bg {
+    background:
+      radial-gradient(circle at 12% 18%, rgba(79,70,229,0.16), transparent 55%),
+      radial-gradient(circle at 88% 82%, rgba(192,38,211,0.14), transparent 55%),
+      #f8fafc;
+  }
+  .boot-loader-card {
+    position: relative; z-index: 1;
+    width: min(440px, 92vw);
+    padding: 40px 36px 32px 36px;
+    border-radius: 22px;
+    background: linear-gradient(160deg, rgba(255,255,255,0.05) 0%, rgba(255,255,255,0.01) 100%);
+    border: 1px solid rgba(139,92,246,0.30);
+    box-shadow:
+      0 32px 80px -16px rgba(0,0,0,0.65),
+      0 0 0 1px rgba(255,255,255,0.04),
+      0 0 80px -16px rgba(99,102,241,0.55);
+    backdrop-filter: blur(20px) saturate(160%);
+    -webkit-backdrop-filter: blur(20px) saturate(160%);
+    text-align: center;
+  }
+  :root[data-theme="light"] .boot-loader-card {
+    background: linear-gradient(160deg, rgba(255,255,255,0.95) 0%, rgba(255,255,255,0.85) 100%);
+    border-color: rgba(79,70,229,0.30);
+  }
+  .boot-loader-logo {
+    position: relative;
+    width: 78px; height: 78px;
+    margin: 0 auto 22px auto;
+    display: flex; align-items: center; justify-content: center;
+  }
+  .boot-emoji {
+    position: relative; z-index: 2;
+    font-size: 42px; line-height: 1;
+    filter: drop-shadow(0 6px 18px rgba(99,102,241,0.65));
+    animation: bootEmojiFloat 2.4s ease-in-out infinite;
+  }
+  .boot-pulse {
+    position: absolute; inset: 0; border-radius: 50%;
+    background: radial-gradient(circle, rgba(99,102,241,0.30) 0%, transparent 70%);
+    animation: bootPulse 2.4s ease-out infinite;
+  }
+  .boot-pulse-2 { animation-delay: 1.2s; }
+  @keyframes bootPulse {
+    0%   { transform: scale(0.9); opacity: 0.9; }
+    100% { transform: scale(1.9); opacity: 0; }
+  }
+  @keyframes bootEmojiFloat {
+    0%, 100% { transform: translateY(0) rotate(-2deg); }
+    50%      { transform: translateY(-4px) rotate(2deg); }
+  }
+  .boot-title {
+    font-family: 'Sora', sans-serif; font-size: 17px; font-weight: 700;
+    color: var(--text); margin-bottom: 6px; letter-spacing: -0.01em;
+  }
+  .boot-sub {
+    font-size: 12.5px; color: var(--text-soft); margin-bottom: 22px;
+    min-height: 18px;
+    font-feature-settings: "tnum"; font-variant-numeric: tabular-nums;
+    transition: color 220ms ease;
+  }
+  .boot-bar-track {
+    position: relative; overflow: hidden;
+    height: 10px; border-radius: 999px;
+    background: rgba(255,255,255,0.06);
+    border: 1px solid rgba(255,255,255,0.08);
+    box-shadow: inset 0 1px 3px rgba(0,0,0,0.45);
+  }
+  :root[data-theme="light"] .boot-bar-track {
+    background: rgba(15,23,42,0.06);
+    border-color: rgba(15,23,42,0.10);
+    box-shadow: inset 0 1px 2px rgba(15,23,42,0.10);
+  }
+  .boot-bar-fill {
+    position: absolute; left: 0; top: 0; height: 100%;
+    width: 0%;
+    background: linear-gradient(90deg, #6366f1 0%, #8b5cf6 35%, #ec4899 70%, #22d3ee 100%);
+    background-size: 200% 100%;
+    border-radius: 999px;
+    box-shadow: 0 0 18px rgba(139,92,246,0.65), inset 0 1px 0 rgba(255,255,255,0.25);
+    transition: width 400ms cubic-bezier(0.22, 1, 0.36, 1);
+    animation: bootBarGradient 3s linear infinite;
+  }
+  @keyframes bootBarGradient {
+    0%   { background-position: 0% 50%; }
+    100% { background-position: 200% 50%; }
+  }
+  .boot-bar-shine {
+    position: absolute; inset: 0; pointer-events: none; border-radius: 999px;
+    background: linear-gradient(90deg, transparent 30%, rgba(255,255,255,0.32) 50%, transparent 70%);
+    transform: translateX(-100%);
+    animation: bootShine 1.8s ease-in-out infinite;
+  }
+  @keyframes bootShine {
+    0%   { transform: translateX(-100%); }
+    100% { transform: translateX(220%); }
+  }
+  .boot-meta {
+    display: flex; justify-content: space-between; align-items: baseline;
+    margin-top: 14px;
+    font-feature-settings: "tnum"; font-variant-numeric: tabular-nums;
+  }
+  .boot-pct {
+    font-family: 'Sora', sans-serif; font-size: 26px; font-weight: 800;
+    background: linear-gradient(135deg, #c7d2fe 0%, #f0abfc 100%);
+    -webkit-background-clip: text; background-clip: text; -webkit-text-fill-color: transparent;
+    letter-spacing: -0.02em;
+  }
+  :root[data-theme="light"] .boot-pct {
+    background: linear-gradient(135deg, #4338ca 0%, #c026d3 100%);
+    -webkit-background-clip: text; background-clip: text; -webkit-text-fill-color: transparent;
+  }
+  .boot-count { font-size: 11.5px; color: var(--text-soft); font-weight: 600; }
+  /* Homepage reveal anim after loader hides */
+  #view-Home.boot-reveal {
+    animation: bootReveal 560ms cubic-bezier(0.22, 1, 0.36, 1) both;
+  }
+  @keyframes bootReveal {
+    0%   { opacity: 0; transform: translateY(14px); }
+    100% { opacity: 1; transform: translateY(0); }
+  }
+
+  /* ============================================================
      HOMEPAGE — floating tile launcher
      ============================================================ */
   .home-hero { margin: 14px 0 28px 0; text-align: center; }
@@ -1769,6 +1914,29 @@
 </style>
 </head>
 <body>
+<!-- Post-signin progress overlay. Shown after OAuth succeeds while sheets are
+     fetched in parallel. Hidden as soon as the last sheet resolves, then the
+     homepage fades in underneath. -->
+<div id="boot-loader" class="boot-loader" aria-hidden="true">
+  <div class="boot-loader-bg"></div>
+  <div class="boot-loader-card">
+    <div class="boot-loader-logo">
+      <span class="boot-pulse"></span>
+      <span class="boot-pulse boot-pulse-2"></span>
+      <div class="boot-emoji">📊</div>
+    </div>
+    <div class="boot-title">Loading the Hypercare command center</div>
+    <div class="boot-sub" id="boot-current-sheet">Connecting to Google Sheets…</div>
+    <div class="boot-bar-track">
+      <div class="boot-bar-fill" id="boot-bar-fill" style="width:0%;"></div>
+      <div class="boot-bar-shine"></div>
+    </div>
+    <div class="boot-meta">
+      <span class="boot-pct" id="boot-pct">0%</span>
+      <span class="boot-count" id="boot-count">0 / 0 sheets</span>
+    </div>
+  </div>
+</div>
 <!-- Ambient decorative wireframes (purely visual; non-interactive) -->
 <!-- viewBox 0 0 1400 900 + preserveAspectRatio="xMidYMid slice" lets us use real
      numeric coordinates while still covering any viewport size. Earlier version
@@ -3641,23 +3809,80 @@ function _isPermissionError(err) {
   const msg = String(err && err.message || err || "");
   return /HTTP 403|PERMISSION_DENIED|caller does not have permission/i.test(msg);
 }
+// ── Boot-loader progress overlay control ─────────────────────────────────────
+// Shows a full-screen 0→100% animated progress bar while sheets fetch.
+// `bootLoaderStart(total)` resets to 0 and shows the overlay.
+// `bootLoaderTick(label)`  bumps progress by one and updates the sub-text.
+// `bootLoaderDone()`        smoothly fills to 100% and fades the overlay out.
+const _BOOT = { total: 0, done: 0, hideTimer: null };
+function bootLoaderEl(id) { return document.getElementById(id); }
+function bootLoaderStart(total) {
+  _BOOT.total = total; _BOOT.done = 0;
+  const root = bootLoaderEl('boot-loader');
+  if (!root) return;
+  root.classList.add('show');
+  const fill = bootLoaderEl('boot-bar-fill'); if (fill) fill.style.width = '0%';
+  const pct  = bootLoaderEl('boot-pct');      if (pct) pct.textContent = '0%';
+  const cnt  = bootLoaderEl('boot-count');    if (cnt) cnt.textContent = `0 / ${total} sheets`;
+  const sub  = bootLoaderEl('boot-current-sheet'); if (sub) sub.textContent = 'Connecting to Google Sheets…';
+  if (_BOOT.hideTimer) { clearTimeout(_BOOT.hideTimer); _BOOT.hideTimer = null; }
+}
+function bootLoaderTick(label) {
+  _BOOT.done = Math.min(_BOOT.done + 1, _BOOT.total);
+  const ratio = _BOOT.total ? (_BOOT.done / _BOOT.total) : 0;
+  // Cap displayed progress at 95% until bootLoaderDone() runs, so the bar
+  // doesn't visually hit 100% before the parsing/render step finishes.
+  const displayPct = Math.min(95, Math.round(ratio * 100));
+  const fill = bootLoaderEl('boot-bar-fill'); if (fill) fill.style.width = displayPct + '%';
+  const pct  = bootLoaderEl('boot-pct');      if (pct) pct.textContent = displayPct + '%';
+  const cnt  = bootLoaderEl('boot-count');    if (cnt) cnt.textContent = `${_BOOT.done} / ${_BOOT.total} sheets`;
+  const sub  = bootLoaderEl('boot-current-sheet');
+  if (sub && label) sub.textContent = `✓ ${label} loaded`;
+}
+function bootLoaderDone() {
+  const fill = bootLoaderEl('boot-bar-fill'); if (fill) fill.style.width = '100%';
+  const pct  = bootLoaderEl('boot-pct');      if (pct) pct.textContent = '100%';
+  const cnt  = bootLoaderEl('boot-count');    if (cnt) cnt.textContent = `${_BOOT.total} / ${_BOOT.total} sheets`;
+  const sub  = bootLoaderEl('boot-current-sheet'); if (sub) sub.textContent = 'All set — opening your dashboard…';
+  const root = bootLoaderEl('boot-loader');
+  // Hold briefly at 100% so the user sees completion, then fade out
+  _BOOT.hideTimer = setTimeout(() => {
+    if (root) root.classList.remove('show');
+    // Replay the homepage reveal animation
+    const home = document.getElementById('view-Home');
+    if (home && home.classList.contains('active')) {
+      home.classList.remove('boot-reveal');
+      // Force reflow so animation restarts
+      void home.offsetWidth;
+      home.classList.add('boot-reveal');
+    }
+  }, 520);
+}
+
 async function fetchSheets() {
   // ============================================================
-  // PARALLEL FETCH — all 17 sheets in flight at once.
+  // PARALLEL FETCH — all sheets in flight at once.
   // ⚠ Do NOT revert this to sequential awaits — it makes first-load go from
   //   ~10-17s back to ~1-2s. Each fetch's failure is captured non-fatally so
   //   the dashboard renders with whatever DID succeed; the diagnostic banner
   //   surfaces the rest.
+  // The boot-loader overlay reads progress from bootLoaderTick() inside the
+  // per-sheet tryFetch wrapper below.
   // To add a new sheet: just add a tryFetch() row + a const in the destructure.
   // ============================================================
   LAST_FETCH_ERRORS = [];
   setStatus("loading", "Loading…");
+  const _SHEET_COUNT = 19;  // keep in sync with the number of tryFetch() rows below
+  bootLoaderStart(_SHEET_COUNT);
   async function tryFetch(key, label) {
     try {
-      return await fetchOne(label, SHEETS[key]);
+      const out = await fetchOne(label, SHEETS[key]);
+      bootLoaderTick(label);
+      return out;
     } catch (e) {
       console.warn(`${label} failed (non-fatal):`, e.message);
       LAST_FETCH_ERRORS.push({ key, label, error: e.message, fileId: SHEETS[key] && SHEETS[key].fileId });
+      bootLoaderTick(label);  // still bump so the bar reaches the same total
       return null;
     }
   }
@@ -3803,12 +4028,16 @@ async function refresh() {
     } else {
       setStatus("ok", "Live");
     }
+    // Hand off to the boot loader: it'll fill to 100% and fade the overlay out,
+    // revealing the homepage tiles underneath.
+    bootLoaderDone();
   } catch (e) {
     console.error(e); META.error = e.message || String(e);
     setStatus("error", "Error: " + META.error);
     // Even on a hard failure, render the diagnostic banner so the user sees
     // exactly which sheet failed and how to fix it.
     renderFetchErrorsBanner();
+    bootLoaderDone();  // hide overlay even on failure so the error UI is visible
   }
   META.fetching = false;
   updateMetaBar();
