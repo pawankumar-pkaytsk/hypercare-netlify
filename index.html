@@ -2935,44 +2935,81 @@ function _pqColor(v) {
   return                              { bg: 'rgba(248,113,113,0.16)', fg: '#fca5a5', bd: 'rgba(248,113,113,0.32)' };
 }
 
-// Creatives Tracker — positional schema (per user spec):
-//   A=date, J=status (Pending/Completed), K=Final Drive Link
-// We retain ALL columns in `raw` so the drilldown can render the full row.
+// Creatives Tracker — header-aware parser.
+// Default expected columns are A=Timestamp, J=Status, K=Drive Link, but we
+// AUTO-DETECT by header name (case-insensitive) so it survives column shifts.
+// We also handle DD/MM/YYYY HH:MM:SS timestamps (Google Form auto-stamp).
 function processCreativesCSV(text) {
   const rows = parseCSV(text);
   if (rows.length < 1) throw new Error("Creatives Tracker CSV too short");
   const headers = rows[0] || [];
+  // Locate columns by header keyword, falling back to positional A / J / K.
+  function findCol(needles, fallback) {
+    for (let i = 0; i < headers.length; i++) {
+      const h = String(headers[i] || "").toLowerCase().trim();
+      for (const n of needles) {
+        if (h === n || h.includes(n)) return i;
+      }
+    }
+    return fallback;
+  }
+  const dateCol   = findCol(["timestamp", "date"], 0);
+  const statusCol = findCol(["status"], 9);
+  const driveCol  = findCol(["drive link", "final drive link", "drive"], 10);
+
+  // Parse a DD/MM/YYYY (or DD/MM/YY) timestamp, optionally with HH:MM:SS.
+  // Falls back to native Date parsing for ISO etc.
+  function parseCreativeDate(s) {
+    if (!s) return null;
+    const str = String(s).trim();
+    // Try the standard parseDate first
+    let d = parseDate(str);
+    if (d && !isNaN(d.getTime())) return d;
+    // Try DD/MM/YYYY[ HH:MM:SS]
+    const m = str.match(/^(\d{1,2})[\/\-\.](\d{1,2})[\/\-\.](\d{2,4})(?:[ T](\d{1,2}):(\d{1,2})(?::(\d{1,2}))?)?$/);
+    if (m) {
+      let [_, dd, mm, yyyy, hh, mi, ss] = m;
+      if (yyyy.length === 2) yyyy = (parseInt(yyyy, 10) > 70 ? "19" : "20") + yyyy;
+      d = new Date(+yyyy, +mm - 1, +dd, +(hh || 0), +(mi || 0), +(ss || 0));
+      if (!isNaN(d.getTime())) return d;
+    }
+    return null;
+  }
+
   const out = [];
   for (let i = 1; i < rows.length; i++) {
     const r = rows[i];
     if (!r) continue;
-    const dateStr = norm(r[0]);                  // column A
-    if (!dateStr) continue;                       // skip blank rows
-    const d = parseDate(dateStr);
+    const dateStr = norm(r[dateCol]);
+    if (!dateStr) continue;
+    const d = parseCreativeDate(dateStr);
     const dateIso = d ? localISODate(d) : null;
-    const statusRaw = norm(r[9] || "").toLowerCase();  // column J
-    const status = /complete/i.test(statusRaw) ? "Completed"
-                 : /pending|wip|in[-\s]?progress/i.test(statusRaw) ? "Pending"
-                 : (norm(r[9]) || "—");
-    const driveLink = norm(r[10] || "");          // column K
+    const statusRaw = norm(r[statusCol] || "").toLowerCase();
+    const status = /complete|done|finish/i.test(statusRaw) ? "Completed"
+                 : /pending|wip|in[-\s]?progress|todo|to[-\s]?do/i.test(statusRaw) ? "Pending"
+                 : (norm(r[statusCol]) || "—");
+    const driveLink = norm(r[driveCol] || "");
     out.push({
-      row_index: i + 1, // 1-indexed including header (matches sheet row number)
+      row_index: i + 1,
       date_str: dateStr,
       date_iso: dateIso,
       ts: d ? d.getTime() : null,
       status,
-      status_raw: norm(r[9]),
+      status_raw: norm(r[statusCol]),
       drive_link: driveLink,
       has_drive: !!(driveLink && /^https?:/i.test(driveLink)),
       raw: r,
       headers,
     });
   }
-  // Sort newest first
   out.sort((a, b) => (b.ts || 0) - (a.ts || 0));
-  const pending  = out.filter(r => r.status === "Pending" && r.date_iso).length;
+  // Pending = column A non-blank AND status Pending (per spec)
+  const pending  = out.filter(r => r.status === "Pending").length;
+  // Completed = column A non-blank AND status Completed AND drive link present
   const completed = out.filter(r => r.status === "Completed" && r.has_drive).length;
-  return { rows: out, headers, count: out.length, pending, completed };
+  console.log(`[CreativesTracker] parsed ${out.length} rows · headers=${JSON.stringify(headers)} · dateCol=${dateCol} statusCol=${statusCol} driveCol=${driveCol} · pending=${pending} completed=${completed}`);
+  return { rows: out, headers, count: out.length, pending, completed,
+           _colMap: { dateCol, statusCol, driveCol } };
 }
 
 function processMSPRecoveryCSV(text) {
@@ -3711,6 +3748,12 @@ async function fetchSheets() {
     { bySeller: {}, count: 0 });
   const creatives = safeParse("Creatives Tracker", crvRaw, processCreativesCSV,
     { rows: [], count: 0, pending: 0, completed: 0 });
+  // Surface fetch failures (e.g. wrong tab name, sheet not shared) so the UI
+  // shows the actual reason instead of a misleading "LIVE · 0 rows".
+  if (!crvRaw) {
+    const fetchErr = LAST_FETCH_ERRORS.find(e => e.key === "creatives");
+    if (fetchErr) creatives.error = fetchErr.error;
+  }
   const hyp = processHypercareCSV(h);
   let calls;
   if (c) {
@@ -5514,7 +5557,8 @@ function _crvFilterRows(rows, mode) {
   const sevenAgoIso = localISODate(new Date(today.getTime() - 6 * 86400000));
   const thirtyAgoIso = localISODate(new Date(today.getTime() - 29 * 86400000));
   return rows.filter(r => {
-    if (!r.date_iso) return false;
+    if (mode === "all") return true;  // include rows even without parsed date
+    if (!r.date_iso) return false;     // date-bounded modes need a valid date
     if (mode === "today")     return r.date_iso === todayIso;
     if (mode === "yesterday") return r.date_iso === yesterdayIso;
     if (mode === "7d")        return r.date_iso >= sevenAgoIso;
@@ -5524,7 +5568,7 @@ function _crvFilterRows(rows, mode) {
       const okTo   = !_crvToIso   || r.date_iso <= _crvToIso;
       return okFrom && okTo;
     }
-    return true; // "all"
+    return true;
   });
 }
 
