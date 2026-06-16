@@ -5527,20 +5527,24 @@ function _crvFilterRows(rows, mode) {
 function renderCreativesTracker() {
   const host = document.getElementById('view-Creatives');
   if (!host) return;
-  const crv = DATA && DATA.creatives;
-  if (!crv) {
-    host.innerHTML = `<div class="card"><h3>Creatives Tracker <span class="pending-tag">LOADING</span></h3><div class="pending-card"><h4>Loading creatives data…</h4></div></div>`;
+  // 3-way state: DATA not loaded, DATA loaded but creatives missing, OR data present
+  if (!DATA) {
+    host.innerHTML = `<div class="card"><h3>Creatives Tracker <span class="pending-tag">LOADING</span></h3><div class="pending-card"><h4>Waiting for the dashboard to finish loading…</h4><p style="color:#94a3b8;font-size:12px;">If this persists, hit Refresh now.</p></div></div>`;
     return;
   }
-  if (crv.error) {
+  const rawCrv = DATA.creatives;
+  // Fetch-level failure (sheet not shared, 403, etc.) — shows the actual error.
+  if (rawCrv && rawCrv.error) {
     host.innerHTML = `<div class="card"><h3>Creatives Tracker <span class="pending-tag">FETCH FAILED</span></h3>
       <div class="pending-card"><h4>Unable to read the Creatives Tracker sheet.</h4>
-        <p style="color:#cbd5e1;font-size:13px;">${escHtml(String(crv.error).slice(0,300))}</p>
-        <p style="font-size:12px;color:#94a3b8;">File: <code>1C356r1ZDhsyvlubTpxms949g03gKGsWjMEx0DD7GtPk</code> · Tab: <code>Tracker</code>. Make sure it's shared with the signed-in account.</p>
+        <p style="color:#cbd5e1;font-size:13px;">${escHtml(String(rawCrv.error).slice(0,300))}</p>
+        <p style="font-size:12px;color:#94a3b8;">File: <code>1C356r1ZDhsyvlubTpxms949g03gKGsWjMEx0DD7GtPk</code> · Tab: <code>Tracker</code>. Share the sheet with the signed-in account, then click Refresh.</p>
       </div></div>`;
     return;
   }
-
+  // Defensive default — if rawCrv is missing entirely, treat as empty so the UI
+  // still renders (with zero counts) instead of an indefinite "Loading…".
+  const crv = rawCrv || { rows: [], count: 0, pending: 0, completed: 0 };
   const allRows = crv.rows || [];
   // Pending pool — all non-blank, status Pending
   const pendingRows = allRows.filter(r => r.status === "Pending");
