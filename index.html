@@ -2423,7 +2423,7 @@ const SHEETS_FAILED_PLACEHOLDER = /^FILL_IN_/;
 // Bumped on every push so the UI can show which build the user is actually
 // running. If this string doesn't match the latest deploy, the browser is
 // serving a cached/older version.
-const BUILD_VERSION = "2026-06-18T22:00:00 · creatives-parser-bulletproof";
+const BUILD_VERSION = "2026-06-18T22:45:00 · FIX: read creatives from CACHED_PAYLOAD not DATA.mkt";
 // Optional convenience: persist file IDs to localStorage so you don't have to
 // edit the file every redeploy. If a value is set in localStorage it takes
 // precedence over the hard-coded one above. See window.hcSetSheetId() helper.
@@ -5941,7 +5941,10 @@ function renderCreativesTracker() {
     host.innerHTML = `<div class="card"><h3>Creatives Tracker <span class="pending-tag">LOADING</span></h3><div class="pending-card"><h4>Waiting for the dashboard to finish loading…</h4><p style="color:#94a3b8;font-size:12px;">If this persists, hit Refresh now.</p></div></div>`;
     return;
   }
-  const rawCrv = DATA.creatives;
+  // ⚠ DATA is just payload.mkt (the marketing slice). The creatives sheet is
+  // stored on the FULL payload (CACHED_PAYLOAD), not on DATA. Reading DATA.creatives
+  // would always be undefined — which was the root cause of all-zero counts.
+  const rawCrv = (typeof CACHED_PAYLOAD !== 'undefined' && CACHED_PAYLOAD) ? CACHED_PAYLOAD.creatives : null;
   // Fetch-level failure (sheet not shared, 403, etc.) — shows the actual error.
   if (rawCrv && rawCrv.error) {
     host.innerHTML = `<div class="card"><h3>Creatives Tracker <span class="pending-tag">FETCH FAILED</span></h3>
