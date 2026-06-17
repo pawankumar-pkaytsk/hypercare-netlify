@@ -2397,6 +2397,7 @@ const SHEETS = {
   hitsBeforeMarchCohort: { fileId: "1dcCIuu4kt9oSKjTx6rr4_nT3pDNcFDovhF-3A1_aAIo", tab: "Before March" },
   hitsMarchCohort:       { fileId: "1dcCIuu4kt9oSKjTx6rr4_nT3pDNcFDovhF-3A1_aAIo", tab: "Active Sellers" },
   hitsAprilCohort:       { fileId: "1pvQ4ewHIta4iqn3GCRFgGIQsKPLURaoY3mtShsm_7ms", tab: "Dump" },
+  hitsAprilInactiveCohort: { fileId: "1pvQ4ewHIta4iqn3GCRFgGIQsKPLURaoY3mtShsm_7ms", tab: "Pawan-April-Inactive" },
   gcv3Dump:       { fileId: "1ayKSKlZa6J3ueFqco4XOnqog9X1VcA9fKm7D5wfRqf8",  tab: "Auto_Dump" },
   dailyMetrics:   { fileId: "19W3KsIIWgp2Aw5h4DzXPMYpAYFrJ7FHA2zNC8ppb1E0",  tab: "MetricsTrack" },
   creatives:      { fileId: "1C356r1ZDhsyvlubTpxms949g03gKGsWjMEx0DD7GtPk",  tab: "Tracker" },
@@ -3872,7 +3873,7 @@ async function fetchSheets() {
   // ============================================================
   LAST_FETCH_ERRORS = [];
   setStatus("loading", "Loading…");
-  const _SHEET_COUNT = 19;  // keep in sync with the number of tryFetch() rows below
+  const _SHEET_COUNT = 20;  // keep in sync with the number of tryFetch() rows below
   bootLoaderStart(_SHEET_COUNT);
   async function tryFetch(key, label) {
     try {
@@ -3889,7 +3890,7 @@ async function fetchSheets() {
   const [
     h, c, rRaw, tRaw, tsRaw, crRaw, uRaw, rfRaw,
     ccRaw, arrRaw, exRaw, rtRaw, msRaw,
-    hbmRaw, hmRaw, haRaw, gcRaw, dmRaw, crvRaw,
+    hbmRaw, hmRaw, haRaw, haiRaw, gcRaw, dmRaw, crvRaw,
   ] = await Promise.all([
     tryFetch("hypercare",            "Hypercare Metrics"),
     tryFetch("calling",              "Calling sheet"),
@@ -3907,6 +3908,7 @@ async function fetchSheets() {
     tryFetch("hitsBeforeMarchCohort","HITS Before March Cohort sheet"),
     tryFetch("hitsMarchCohort",      "HITS March Cohort sheet"),
     tryFetch("hitsAprilCohort",      "HITS April Cohort sheet"),
+    tryFetch("hitsAprilInactiveCohort","HITS April Inactive Cohort sheet"),
     tryFetch("gcv3Dump",             "GCV3 Dump sheet"),
     tryFetch("dailyMetrics",         "Daily Metrics sheet"),
     tryFetch("creatives",            "Creatives Tracker sheet"),
@@ -3967,6 +3969,10 @@ async function fetchSheets() {
   const hitsAprilCohort = safeParse("HITS April Cohort", haRaw,
     (text) => processHITSCohortCSV(text, { idOnly: true }),
     { bySeller: {}, sellerIds: [], count: 0 });
+  // April-Inactive uses ID-only mode too (same enrichment path).
+  const hitsAprilInactiveCohort = safeParse("HITS April Inactive Cohort", haiRaw,
+    (text) => processHITSCohortCSV(text, { idOnly: true }),
+    { bySeller: {}, sellerIds: [], count: 0 });
   const gcv3Dump = safeParse("GCV3 Dump", gcRaw, processGCV3DumpCSV,
     { bySeller: {}, count: 0 });
   const dailyMetrics = safeParse("Daily Metrics", dmRaw, processDailyMetricsCSV,
@@ -4000,6 +4006,7 @@ async function fetchSheets() {
   data.hitsBeforeMarchCohort = hitsBeforeMarchCohort;
   data.hitsMarchCohort = hitsMarchCohort;
   data.hitsAprilCohort = hitsAprilCohort;
+  data.hitsAprilInactiveCohort = hitsAprilInactiveCohort;
   data.gcv3Dump = gcv3Dump;
   data.dailyMetrics = dailyMetrics;
   data.creatives = creatives;
@@ -5431,6 +5438,7 @@ function _hitsCohortData() {
   if (hitsCohort === "before_march") return p.hitsBeforeMarchCohort;
   if (hitsCohort === "march")        return p.hitsMarchCohort;
   if (hitsCohort === "april")        return p.hitsAprilCohort;
+  if (hitsCohort === "april_inactive") return p.hitsAprilInactiveCohort;
   return null;
 }
 function _hitsPNLData() {
@@ -6181,6 +6189,7 @@ function renderHITSRecovery() {
             <option value="before_march"${hitsCohort==='before_march'?' selected':''}>Before March 2026 Golive cohort</option>
             <option value="march"${hitsCohort==='march'?' selected':''}>March 2026 Golive cohort</option>
             <option value="april"${hitsCohort==='april'?' selected':''}>April 2026 Golive cohort</option>
+            <option value="april_inactive"${hitsCohort==='april_inactive'?' selected':''}>April Inactive Cohort</option>
             <option value="" disabled>— Jan/Feb/May (coming soon) —</option>
           </select>
         </div>
