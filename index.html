@@ -2420,6 +2420,10 @@ const HITS_THRESHOLDS = {
   pnl_bucket_min:          -20,  // PNL > -20 in any week = bucket health
 };
 const SHEETS_FAILED_PLACEHOLDER = /^FILL_IN_/;
+// Bumped on every push so the UI can show which build the user is actually
+// running. If this string doesn't match the latest deploy, the browser is
+// serving a cached/older version.
+const BUILD_VERSION = "2026-06-18T22:00:00 · creatives-parser-bulletproof";
 // Optional convenience: persist file IDs to localStorage so you don't have to
 // edit the file every redeploy. If a value is set in localStorage it takes
 // precedence over the hard-coded one above. See window.hcSetSheetId() helper.
@@ -3115,8 +3119,12 @@ function _pqColor(v) {
 // AUTO-DETECT by header name (case-insensitive) so it survives column shifts.
 // We also handle DD/MM/YYYY HH:MM:SS timestamps (Google Form auto-stamp).
 function processCreativesCSV(text) {
-  const rows = parseCSV(text);
-  if (rows.length < 1) throw new Error("Creatives Tracker CSV too short");
+  // Bulletproof: never throw. Always return _colMap and _parseDiag so the
+  // UI can show what happened even on weird data.
+  const _parseDiag = { text_len: (text || "").length, text_preview: (text || "").slice(0, 120) };
+  const rows = parseCSV(text || "");
+  _parseDiag.rows_from_csv = rows.length;
+  _parseDiag.first_row_len = rows[0] ? rows[0].length : 0;
   const headers = rows[0] || [];
   // Locate columns by header keyword, falling back to positional A / J / K.
   function findCol(needles, fallback) {
@@ -3196,7 +3204,8 @@ function processCreativesCSV(text) {
   console.log(`[CreativesTracker] status tally:`, statusTally);
   console.log(`[CreativesTracker] first 3 parsed rows:`, preview);
   return { rows: out, headers, count: out.length, pending, completed,
-           _colMap: { dateCol, statusCol, driveCol }, _statusTally: statusTally };
+           _colMap: { dateCol, statusCol, driveCol }, _statusTally: statusTally,
+           _parseDiag };
 }
 
 function processMSPRecoveryCSV(text) {
@@ -5998,15 +6007,24 @@ function renderCreativesTracker() {
   const attemptsLine = attempts.length
     ? `<div>fetch attempts: ${attempts.map(a => `${escHtml(a.tab || '(blank)')}=${a.ok ? `✓ ${a.bytes}B` : `✗ ${escHtml((a.err||'').slice(0,40))}`}`).join(' · ')}</div>`
     : '';
+  const parseDiag = crv._parseDiag || {};
+  const headersPreview = (crv.headers || []).slice(0, 13).map(h => `<code>${escHtml(String(h).slice(0,20))}</code>`).join(', ');
+  const buildStamp = (typeof BUILD_VERSION !== 'undefined') ? BUILD_VERSION : '(unknown)';
+  const safeParseError = crv.error ? `<div style="color:#fca5a5;margin-top:6px;">⛔ safeParse error: <code>${escHtml(crv.error)}</code></div>` : '';
   const diagBlock = `<div style="background:rgba(8,9,26,0.55);border:1px dashed rgba(244,114,182,0.30);border-radius:10px;padding:10px 14px;margin-top:10px;font-family:'JetBrains Mono',monospace;font-size:11px;color:#cbd5e1;line-height:1.6;">
-    <div style="color:#f0abfc;font-weight:700;margin-bottom:6px;font-family:'Sora',sans-serif;font-size:12px;letter-spacing:0.04em;">🔎 Parser diagnostic</div>
+    <div style="color:#f0abfc;font-weight:700;margin-bottom:6px;font-family:'Sora',sans-serif;font-size:12px;letter-spacing:0.04em;">🔎 Parser diagnostic <span style="color:#94a3b8;font-weight:500;font-family:'JetBrains Mono',monospace;font-size:10px;">build: ${escHtml(buildStamp)}</span></div>
     <div>parsed rows: <b style="color:#fff;">${crv.count}</b> · pending: <b style="color:#fbbf24;">${crv.pending}</b> · completed (w/ drive): <b style="color:#34d399;">${crv.completed}</b></div>
+    <div>fetched text length: <b>${parseDiag.text_len ?? 'n/a'}</b> chars · parseCSV produced <b>${parseDiag.rows_from_csv ?? 'n/a'}</b> rows · first-row width: <b>${parseDiag.first_row_len ?? 'n/a'}</b> cols</div>
+    ${parseDiag.text_preview ? `<div>raw preview: <code style="color:#a5b4fc;">${escHtml(String(parseDiag.text_preview).slice(0,120))}…</code></div>` : ''}
+    <div>headers detected: ${headersPreview || '<span style="color:#fca5a5;">(none — header row is empty)</span>'}</div>
     <div>detected columns: date=<b>col ${colMap.dateCol === undefined ? 'n/a' : colMap.dateCol}</b> · status=<b>col ${colMap.statusCol === undefined ? 'n/a' : colMap.statusCol}</b> · drive=<b>col ${colMap.driveCol === undefined ? 'n/a' : colMap.driveCol}</b></div>
     <div>status values seen: ${tallyStr}</div>
     ${tabLine}
     ${tabsAvailLine}
     ${attemptsLine}
-    ${crv.count === 0 ? `<div style="color:#fca5a5;margin-top:6px;">⚠ No rows parsed. Most likely the sheet isn't shared with the signed-in Google account, OR there are no rows with column A filled in. Verify the sheet is shared with <b>kickstarter@blitzscale.co</b>.</div>` : ''}
+    ${safeParseError}
+    ${crv.count === 0 && colMap.dateCol === undefined ? `<div style="color:#fca5a5;margin-top:6px;">⚠ Parser didn't run — either an exception was caught above (see error line) OR the deployed JS is an older cached version. Compare the build timestamp at the top with the latest pushed commit.</div>` : ''}
+    ${crv.count === 0 && colMap.dateCol !== undefined ? `<div style="color:#fca5a5;margin-top:6px;">⚠ Parser ran but found no usable rows. parseCSV got <b>${parseDiag.rows_from_csv}</b> rows from <b>${parseDiag.text_len}</b> chars but every data row had a blank date (col ${colMap.dateCol}).</div>` : ''}
   </div>`;
 
   host.innerHTML = `<div class="card" style="background:linear-gradient(135deg,rgba(244,114,182,0.10),rgba(139,92,246,0.04));border-color:rgba(244,114,182,0.30);">
