@@ -2696,6 +2696,10 @@ function processHypercareCSV(text) {
   const cutoff45 = new Date(today.getTime() - ACTIVE_DAYS * 86400000);
 
   const marketingSellers = [], revivalSellers = [], scalingSellers = [];
+  // allSellersById holds EVERY parsed row, keyed by seller_id, regardless of
+  // active/inactive status or GC team. HITS Recovery uses this for enrichment
+  // so inactive cohort sellers can still pull name / GC / GM info.
+  const allSellersById = {};
   // Diagnostic counters — print at end so we can see which check is rejecting sellers.
   const diag = { total_rows: 0, blank_sid: 0, mkt_gc_ok: 0, mkt_gm_ok: 0, mkt_kae_ok: 0, mkt_active45_ok: 0, mkt_all_ok: 0, rev: 0, sca: 0, sample_rejected: [] };
   for (const r of data) {
@@ -2743,9 +2747,11 @@ function processHypercareCSV(text) {
     }
     if (REV_GCS.includes(gc)) { revivalSellers.push(rec); diag.rev++; }
     if (SCA_GCS.includes(gc) && isActive45) { scalingSellers.push(rec); diag.sca++; }
+    // ALWAYS store in the "all sellers" map — no active/inactive filter, no GC gate.
+    allSellersById[sid] = rec;
   }
-  try { console.log("[Hypercare] Filter diagnostics:", diag); } catch (e) {}
-  return { marketingSellers, revivalSellers, scalingSellers, weekLabels };
+  try { console.log("[Hypercare] Filter diagnostics:", diag, "· all sellers indexed:", Object.keys(allSellersById).length); } catch (e) {}
+  return { marketingSellers, revivalSellers, scalingSellers, weekLabels, allSellersById };
 }
 
 function processCallingCSV(text) {
@@ -3176,9 +3182,21 @@ function processCreativesCSV(text) {
   const pending  = out.filter(r => r.status === "Pending").length;
   // Completed = column A non-blank AND status Completed AND drive link present
   const completed = out.filter(r => r.status === "Completed" && r.has_drive).length;
-  console.log(`[CreativesTracker] parsed ${out.length} rows · headers=${JSON.stringify(headers)} · dateCol=${dateCol} statusCol=${statusCol} driveCol=${driveCol} · pending=${pending} completed=${completed}`);
+  // Distinct status values seen — helps debug regex misses
+  const statusTally = {};
+  out.forEach(r => { const k = r.status || "(empty)"; statusTally[k] = (statusTally[k] || 0) + 1; });
+  // Dump the first 3 parsed rows as a compact preview
+  const preview = out.slice(0, 3).map(r => ({
+    row: r.row_index, date_str: r.date_str, date_iso: r.date_iso,
+    status: r.status, status_raw: r.status_raw, drive: r.drive_link ? r.drive_link.slice(0, 40) + '…' : '', has_drive: r.has_drive,
+  }));
+  console.log(`[CreativesTracker] rows=${rows.length} (header+data) · parsed=${out.length} · pending=${pending} · completed=${completed}`);
+  console.log(`[CreativesTracker] headers (col 0-12):`, headers.slice(0, 13));
+  console.log(`[CreativesTracker] detected columns: dateCol=${dateCol} (${headers[dateCol]||"?"}) · statusCol=${statusCol} (${headers[statusCol]||"?"}) · driveCol=${driveCol} (${headers[driveCol]||"?"})`);
+  console.log(`[CreativesTracker] status tally:`, statusTally);
+  console.log(`[CreativesTracker] first 3 parsed rows:`, preview);
   return { rows: out, headers, count: out.length, pending, completed,
-           _colMap: { dateCol, statusCol, driveCol } };
+           _colMap: { dateCol, statusCol, driveCol }, _statusTally: statusTally };
 }
 
 function processMSPRecoveryCSV(text) {
@@ -4010,6 +4028,11 @@ async function fetchSheets() {
   data.gcv3Dump = gcv3Dump;
   data.dailyMetrics = dailyMetrics;
   data.creatives = creatives;
+  // Expose the COMPLETE Hypercare seller pool (including inactive ones that
+  // got filtered out of marketingSellers / scalingSellers). HITS Recovery's
+  // enrichment uses this so inactive cohorts (April Inactive, etc.) can still
+  // pull seller name / GC / GM info.
+  data.allHypercareSellers = hyp.allSellersById || {};
   return data;
 }
 async function refresh() {
@@ -5681,6 +5704,13 @@ function _enrichSellerFromOtherSheets(sid, cs) {
   if (DATA && DATA.sellers) dashSeller = DATA.sellers.find(s => s.seller_id === sid);
   if (!dashSeller && REVIVAL && REVIVAL.sellers) dashSeller = REVIVAL.sellers.find(s => s.seller_id === sid);
   if (!dashSeller && SCALING && SCALING.sellers) dashSeller = SCALING.sellers.find(s => s.seller_id === sid);
+  // FALLBACK: search the FULL Hypercare seller pool (incl. inactive ones that
+  // didn't make it past the 45-day active filter). This is critical for the
+  // April Inactive cohort — those sellers exist in Hypercare Inputs but are
+  // excluded from DATA.sellers because they're inactive.
+  if (!dashSeller && payload && payload.allHypercareSellers) {
+    dashSeller = payload.allHypercareSellers[sid] || null;
+  }
   return {
     seller_id:        sid,
     seller_name:      cs.seller_name || (msp && msp.seller_name) || (dashSeller && dashSeller.seller_name) || "",
@@ -5705,6 +5735,16 @@ function buildHITSSellerRows() {
     funnel:0, near_spend_gap:0, near_nonconsec:0, one_lever:0,
     funds_addition_required:0, experimental:0,
   }};
+  // Diagnostic — count enrichment coverage. Useful for inactive cohorts.
+  try {
+    const allHyp = (payload && payload.allHypercareSellers) || {};
+    const pnlBy = (payload && payload.gcv3Dump && payload.gcv3Dump.bySeller) || {};
+    const fundsCount = cohort.sellerIds.filter(s => fundsBy[s]).length;
+    const pnlCount   = cohort.sellerIds.filter(s => pnlBy[s] && pnlBy[s].length).length;
+    const hypCount   = cohort.sellerIds.filter(s => allHyp[s]).length;
+    const mspCount   = cohort.sellerIds.filter(s => payload.mspRecovery && payload.mspRecovery.bySeller && payload.mspRecovery.bySeller[s]).length;
+    console.log(`[HITS Recovery · ${hitsCohort}] cohort=${cohort.sellerIds.length} · Hypercare-Inputs match=${hypCount} · GCV3-PNL match=${pnlCount} · MSP-Recovery match=${mspCount} · Remaining-Funds match=${fundsCount}`);
+  } catch (e) {}
   const rows = cohort.sellerIds.map(sid => {
     const csRaw = cohort.bySeller[sid] || { seller_id: sid };
     const cs = _enrichSellerFromOtherSheets(sid, csRaw);
@@ -6958,18 +6998,38 @@ function _buildCampaignMatrix(sellers, metricId, days) {
   }
   const meta = CAMPAIGN_METRICS.find(m => m.id === metricId);
   const goodDir = meta ? meta.goodDir : "up";
+  let _diag = { sellersInScope: sellers.length, sellersWithDailyMetrics: 0, sellersWithData: 0, sampleSeller: null };
   const rows = sellers.map(s => {
     const sellerRows = (dm && dm.bySeller && dm.bySeller[s.seller_id]) || [];
+    if (sellerRows.length > 0) _diag.sellersWithDailyMetrics++;
     const byDate = {};
     sellerRows.forEach(r => { byDate[r.date_iso] = r[metricId]; });
     const series = dateIsos.map(iso => (byDate[iso] !== undefined ? byDate[iso] : null));
     const nonNull = series.filter(v => v != null);
+    if (nonNull.length > 0) _diag.sellersWithData++;
     const mean = nonNull.length ? nonNull.reduce((a, b) => a + b, 0) / nonNull.length : null;
     const slope = _linearRegressionSlope(series);
     const trend = _classifyCampaignTrend(slope, mean, goodDir);
     const recent = series.filter(v => v != null).slice(-1)[0] ?? null;
+    if (!_diag.sampleSeller && sellerRows.length > 0) {
+      _diag.sampleSeller = {
+        seller_id: s.seller_id, name: s.seller_name,
+        total_daily_rows: sellerRows.length,
+        sample_row: sellerRows[sellerRows.length - 1],  // most recent
+        non_null_in_window: nonNull.length,
+      };
+    }
     return { seller: s, series, mean, slope, trend, recent };
   });
+  // Diagnostic — print only when called from the "spend" tab so we don't spam
+  if (metricId === "spend") {
+    console.log(`[CampaignTrack · ${metricId} · ${days}d window]`, _diag);
+    if (sellers.length > 0 && _diag.sellersWithDailyMetrics === 0) {
+      const sample = sellers[0];
+      const dmKeys = dm && dm.bySeller ? Object.keys(dm.bySeller) : [];
+      console.warn(`[CampaignTrack] ZERO sellers in scope had Daily Metrics rows. Sample scope-seller id: "${sample.seller_id}". Daily Metrics has ${dmKeys.length} unique seller IDs. Sample DM id: "${dmKeys[0] || '(none)'}". If these don't match, the Daily Metrics sheet doesn't cover this GC's sellers.`);
+    }
+  }
   return { dateIsos, rows, meta };
 }
 
