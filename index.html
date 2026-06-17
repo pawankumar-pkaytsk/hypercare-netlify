@@ -5905,6 +5905,18 @@ function renderCreativesTracker() {
       </div>`
     : '';
 
+  // Inline diagnostic — always visible so the user can see exactly what got parsed.
+  const colMap = crv._colMap || {};
+  const tally = crv._statusTally || {};
+  const tallyStr = Object.keys(tally).length ? Object.entries(tally).map(([k,v]) => `${escHtml(k)}: ${v}`).join(' · ') : 'none';
+  const diagBlock = `<div style="background:rgba(8,9,26,0.55);border:1px dashed rgba(244,114,182,0.30);border-radius:10px;padding:10px 14px;margin-top:10px;font-family:'JetBrains Mono',monospace;font-size:11px;color:#cbd5e1;line-height:1.6;">
+    <div style="color:#f0abfc;font-weight:700;margin-bottom:6px;font-family:'Sora',sans-serif;font-size:12px;letter-spacing:0.04em;">🔎 Parser diagnostic</div>
+    <div>parsed rows: <b style="color:#fff;">${crv.count}</b> · pending: <b style="color:#fbbf24;">${crv.pending}</b> · completed (w/ drive): <b style="color:#34d399;">${crv.completed}</b></div>
+    <div>detected columns: date=<b>col ${colMap.dateCol}</b> · status=<b>col ${colMap.statusCol}</b> · drive=<b>col ${colMap.driveCol}</b></div>
+    <div>status values seen: ${tallyStr}</div>
+    ${crv.count === 0 ? `<div style="color:#fca5a5;margin-top:6px;">⚠ No rows parsed. Either the sheet isn't shared with the signed-in account, or the tab name isn't "Tracker", or column A is empty for every row.</div>` : ''}
+  </div>`;
+
   host.innerHTML = `<div class="card" style="background:linear-gradient(135deg,rgba(244,114,182,0.10),rgba(139,92,246,0.04));border-color:rgba(244,114,182,0.30);">
       <h3 style="margin:0 0 6px 0;font-family:'Sora',sans-serif;font-size:20px;">🎨 Creatives Tracker</h3>
       <p style="margin:0 0 12px 0;font-size:12.5px;color:var(--text-soft);line-height:1.55;">
@@ -5912,6 +5924,7 @@ function renderCreativesTracker() {
         <a href="https://docs.google.com/spreadsheets/d/1C356r1ZDhsyvlubTpxms949g03gKGsWjMEx0DD7GtPk" target="_blank" rel="noopener" style="color:var(--brand-soft);">Tracker sheet ↗</a>
         · ${crv.count} total row${crv.count===1?'':'s'} · <span class="src-tag">LIVE</span>
       </p>
+      ${diagBlock}
     </div>
     ${newTodayBanner}
     <div class="crv-grid">
@@ -7202,11 +7215,23 @@ function renderCampaignTrack(opts) {
       </div>`;
   }
 
+  // Inline diagnostic — how many sellers actually have Daily Metrics rows
+  const _dmData = (typeof CACHED_PAYLOAD !== 'undefined' && CACHED_PAYLOAD && CACHED_PAYLOAD.dailyMetrics) || null;
+  const _dmKeys = _dmData && _dmData.bySeller ? Object.keys(_dmData.bySeller) : [];
+  const _sellersWithDM = sellers.filter(s => _dmData && _dmData.bySeller && _dmData.bySeller[s.seller_id] && _dmData.bySeller[s.seller_id].length > 0).length;
+  const _campDiag = `<div style="background:rgba(8,9,26,0.55);border:1px dashed rgba(34,211,238,0.30);border-radius:10px;padding:10px 14px;margin-top:10px;font-family:'JetBrains Mono',monospace;font-size:11px;color:#cbd5e1;line-height:1.6;">
+    <div style="color:#22d3ee;font-weight:700;margin-bottom:6px;font-family:'Sora',sans-serif;font-size:12px;letter-spacing:0.04em;">🔎 Daily Metrics coverage</div>
+    <div>sellers in scope: <b style="color:#fff;">${sellers.length}</b> · sellers w/ Daily Metrics rows: <b style="color:${_sellersWithDM > 0 ? '#34d399' : '#fca5a5'};">${_sellersWithDM}</b> (${sellers.length ? Math.round(_sellersWithDM/sellers.length*100) : 0}%)</div>
+    <div>Daily Metrics sheet has <b>${_dmKeys.length}</b> unique seller IDs total ${_dmKeys.length === 0 ? '<span style="color:#fca5a5;">— sheet may not be shared with the signed-in account</span>' : ''}</div>
+    ${sellers.length > 0 && _sellersWithDM === 0 ? `<div style="color:#fca5a5;margin-top:6px;">⚠ None of this GC's sellers appear in the Daily Metrics sheet. Sample scope seller ID: <code>${escHtml(sellers[0].seller_id || '')}</code>. Sample DM seller ID: <code>${escHtml(_dmKeys[0] || '(none)')}</code>. If they don't visually match the IDs in the sheet, check the seller_id column in MetricsTrack tab.</div>` : ''}
+  </div>`;
+
   host.innerHTML = `<div class="card" style="background:linear-gradient(135deg,rgba(99,102,241,0.10),rgba(34,211,238,0.04));">
       <h3 style="margin:0 0 6px 0;font-family:'Sora',sans-serif;font-size:17px;">📡 Campaign Track</h3>
       <p style="margin:0 0 12px 0;font-size:12.5px;color:var(--text-soft);line-height:1.55;">
         Date-wise performance of each daily metric per seller. Trends classified as <b style="color:var(--success);">📈 Improving</b>, <b>➡️ Stable</b>, or <b style="color:var(--danger);">📉 Worsening</b> via direction-aware linear regression. Click any seller's chip below for the recommended action.
       </p>
+      ${_campDiag}
       ${subtabsHTML}
       ${filterHTML}
     </div>
