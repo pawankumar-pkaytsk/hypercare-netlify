@@ -3612,6 +3612,69 @@ function _valuesToCSV(rows) {
 
 // One unified fetcher that calls the Google Sheets API with the user's OAuth
 // access token. `label` is for error messages, `sheet` is { fileId, tab }.
+// Try to fetch a sheet; if the configured tab doesn't exist or returns empty,
+// query the spreadsheet metadata, find a tab whose name contains `keyword`
+// (case-insensitive), update SHEETS[key].tab, and retry. Used by the Creatives
+// Tracker fetch where the user named "Tracker" but the actual tab might be
+// "1K-5K Creative Tracker" or "Form Responses 1" etc.
+async function fetchOneAutoTab(key, label, keyword) {
+  const sheet = SHEETS[key];
+  let result = null;
+  const tried = [];
+  // First attempt with the configured tab
+  try {
+    result = await fetchOne(label, sheet);
+    tried.push({ tab: sheet.tab, ok: true, bytes: (result || "").length });
+    if (result && result.length > 30) {
+      sheet._actualTab = sheet.tab;
+      sheet._tabAttempts = tried;
+      return result;
+    }
+  } catch (e) {
+    tried.push({ tab: sheet.tab, ok: false, err: e.message });
+  }
+  // Fall back: query metadata to find a tab name containing `keyword`
+  try {
+    const url = `https://sheets.googleapis.com/v4/spreadsheets/${encodeURIComponent(sheet.fileId)}?fields=sheets.properties.title`;
+    const res = await fetch(url, {
+      headers: { Authorization: "Bearer " + OAUTH_ACCESS_TOKEN, Accept: "application/json" },
+      cache: "no-store",
+    });
+    if (res.ok) {
+      const data = await res.json();
+      const tabs = (data.sheets || []).map(s => s.properties && s.properties.title).filter(Boolean);
+      sheet._allTabs = tabs;
+      // Prefer exact match (case-insensitive), then any tab containing the keyword
+      let match = tabs.find(t => t.toLowerCase() === keyword.toLowerCase())
+               || tabs.find(t => t.toLowerCase().includes(keyword.toLowerCase()))
+               || tabs[0];
+      if (match && match !== sheet.tab) {
+        console.log(`[${label}] auto-detected tab: "${sheet.tab}" → "${match}". All tabs: [${tabs.join(", ")}]`);
+        const oldTab = sheet.tab;
+        sheet.tab = match;
+        try {
+          result = await fetchOne(label, sheet);
+          tried.push({ tab: match, ok: true, bytes: (result || "").length });
+          sheet._actualTab = match;
+          sheet._tabAttempts = tried;
+          return result;
+        } catch (e) {
+          tried.push({ tab: match, ok: false, err: e.message });
+          sheet.tab = oldTab;  // restore
+        }
+      } else {
+        console.warn(`[${label}] no tab matching "${keyword}". Configured "${sheet.tab}" returned no data. Available tabs: [${tabs.join(", ")}]`);
+      }
+    } else {
+      console.warn(`[${label}] metadata API returned HTTP ${res.status}`);
+    }
+  } catch (e) {
+    console.warn(`[${label}] metadata fetch threw:`, e.message);
+  }
+  sheet._tabAttempts = tried;
+  return result;  // possibly null
+}
+
 async function fetchOne(label, sheet) {
   if (!sheet || !sheet.fileId || SHEETS_FAILED_PLACEHOLDER.test(sheet.fileId)) {
     throw new Error(`${label}: file ID not configured (placeholder still set)`);
@@ -3929,7 +3992,19 @@ async function fetchSheets() {
     tryFetch("hitsAprilInactiveCohort","HITS April Inactive Cohort sheet"),
     tryFetch("gcv3Dump",             "GCV3 Dump sheet"),
     tryFetch("dailyMetrics",         "Daily Metrics sheet"),
-    tryFetch("creatives",            "Creatives Tracker sheet"),
+    (async () => {
+      // Special path: auto-detect the correct tab name if "Tracker" doesn't work.
+      try {
+        const out = await fetchOneAutoTab("creatives", "Creatives Tracker sheet", "tracker");
+        bootLoaderTick("Creatives Tracker sheet");
+        return out;
+      } catch (e) {
+        console.warn("Creatives Tracker sheet failed (non-fatal):", e.message);
+        LAST_FETCH_ERRORS.push({ key: "creatives", label: "Creatives Tracker sheet", error: e.message, fileId: SHEETS.creatives.fileId });
+        bootLoaderTick("Creatives Tracker sheet");
+        return null;
+      }
+    })(),
   ]);
 
   if (!h) {
@@ -5909,12 +5984,29 @@ function renderCreativesTracker() {
   const colMap = crv._colMap || {};
   const tally = crv._statusTally || {};
   const tallyStr = Object.keys(tally).length ? Object.entries(tally).map(([k,v]) => `${escHtml(k)}: ${v}`).join(' · ') : 'none';
+  // Also surface what happened at fetch time — which tab worked / what tabs the sheet has
+  const sheetMeta = SHEETS && SHEETS.creatives ? SHEETS.creatives : {};
+  const actualTab = sheetMeta._actualTab;
+  const allTabs   = sheetMeta._allTabs || null;
+  const attempts  = sheetMeta._tabAttempts || [];
+  const tabLine = actualTab
+    ? `<div>fetch used tab: <b style="color:#34d399;">"${escHtml(actualTab)}"</b> ${actualTab !== sheetMeta.tab ? `<span style="color:#fbbf24;">(auto-detected — configured was "${escHtml(sheetMeta.tab)}")</span>` : ''}</div>`
+    : `<div style="color:#fca5a5;">fetch did not return data from any tab attempted.</div>`;
+  const tabsAvailLine = allTabs && allTabs.length
+    ? `<div>tabs available in this sheet: [${allTabs.map(t => `<code>${escHtml(t)}</code>`).join(', ')}]</div>`
+    : '';
+  const attemptsLine = attempts.length
+    ? `<div>fetch attempts: ${attempts.map(a => `${escHtml(a.tab || '(blank)')}=${a.ok ? `✓ ${a.bytes}B` : `✗ ${escHtml((a.err||'').slice(0,40))}`}`).join(' · ')}</div>`
+    : '';
   const diagBlock = `<div style="background:rgba(8,9,26,0.55);border:1px dashed rgba(244,114,182,0.30);border-radius:10px;padding:10px 14px;margin-top:10px;font-family:'JetBrains Mono',monospace;font-size:11px;color:#cbd5e1;line-height:1.6;">
     <div style="color:#f0abfc;font-weight:700;margin-bottom:6px;font-family:'Sora',sans-serif;font-size:12px;letter-spacing:0.04em;">🔎 Parser diagnostic</div>
     <div>parsed rows: <b style="color:#fff;">${crv.count}</b> · pending: <b style="color:#fbbf24;">${crv.pending}</b> · completed (w/ drive): <b style="color:#34d399;">${crv.completed}</b></div>
-    <div>detected columns: date=<b>col ${colMap.dateCol}</b> · status=<b>col ${colMap.statusCol}</b> · drive=<b>col ${colMap.driveCol}</b></div>
+    <div>detected columns: date=<b>col ${colMap.dateCol === undefined ? 'n/a' : colMap.dateCol}</b> · status=<b>col ${colMap.statusCol === undefined ? 'n/a' : colMap.statusCol}</b> · drive=<b>col ${colMap.driveCol === undefined ? 'n/a' : colMap.driveCol}</b></div>
     <div>status values seen: ${tallyStr}</div>
-    ${crv.count === 0 ? `<div style="color:#fca5a5;margin-top:6px;">⚠ No rows parsed. Either the sheet isn't shared with the signed-in account, or the tab name isn't "Tracker", or column A is empty for every row.</div>` : ''}
+    ${tabLine}
+    ${tabsAvailLine}
+    ${attemptsLine}
+    ${crv.count === 0 ? `<div style="color:#fca5a5;margin-top:6px;">⚠ No rows parsed. Most likely the sheet isn't shared with the signed-in Google account, OR there are no rows with column A filled in. Verify the sheet is shared with <b>kickstarter@blitzscale.co</b>.</div>` : ''}
   </div>`;
 
   host.innerHTML = `<div class="card" style="background:linear-gradient(135deg,rgba(244,114,182,0.10),rgba(139,92,246,0.04));border-color:rgba(244,114,182,0.30);">
