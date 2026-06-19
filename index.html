@@ -2423,7 +2423,7 @@ const SHEETS_FAILED_PLACEHOLDER = /^FILL_IN_/;
 // Bumped on every push so the UI can show which build the user is actually
 // running. If this string doesn't match the latest deploy, the browser is
 // serving a cached/older version.
-const BUILD_VERSION = "2026-06-18T22:45:00 · FIX: read creatives from CACHED_PAYLOAD not DATA.mkt";
+const BUILD_VERSION = "2026-06-18T23:30:00 · universal CSV export on every table";
 // Optional convenience: persist file IDs to localStorage so you don't have to
 // edit the file every redeploy. If a value is set in localStorage it takes
 // precedence over the hard-coded one above. See window.hcSetSheetId() helper.
@@ -2561,6 +2561,119 @@ function fmtTalk(sec) {
 // Local-time formatters: avoid Date.toISOString() because it converts to UTC
 // (which silently shifts dates one day earlier for users in IST/positive offsets
 // near midnight).
+// ============================================================
+// UNIVERSAL CSV EXPORT
+// ============================================================
+// Auto-attaches a "📥 CSV" button to every .card > .tbl-wrap > table.t the
+// dashboard renders, anywhere across all teams. Uses a MutationObserver so
+// any newly-rendered table picks it up automatically; tables already
+// processed are skipped via a private flag.
+function _csvEsc(s) {
+  s = String(s == null ? "" : s);
+  return /[",\n]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s;
+}
+function _tableToCSV(table) {
+  const lines = [];
+  // Headers
+  const ths = table.querySelectorAll('thead th');
+  if (ths.length) {
+    lines.push([...ths].map(th => _csvEsc(th.innerText.trim().replace(/\s+/g, ' '))).join(','));
+  }
+  // Body rows
+  const trs = table.querySelectorAll('tbody tr');
+  trs.forEach(tr => {
+    const cells = tr.querySelectorAll('td, th');
+    // Skip rows with one big colspan placeholder (e.g. "No data" row)
+    if (cells.length === 1 && cells[0].getAttribute('colspan')) {
+      lines.push(_csvEsc(cells[0].innerText.trim()));
+      return;
+    }
+    lines.push([...cells].map(td => _csvEsc(td.innerText.trim().replace(/\s+/g, ' '))).join(','));
+  });
+  return lines.join('\n');
+}
+function _downloadCSV(csv, filename) {
+  const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url; a.download = filename;
+  document.body.appendChild(a); a.click(); document.body.removeChild(a);
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
+}
+// Slugify a heading for use in a filename
+function _slugifyForFile(s) {
+  return String(s || "table").toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '')
+    .slice(0, 60) || "table";
+}
+function attachCSVExports() {
+  const tables = document.querySelectorAll('.tbl-wrap > table.t');
+  tables.forEach(tbl => {
+    if (tbl._csvBtnAttached) return;
+    const wrap = tbl.closest('.tbl-wrap');
+    if (!wrap || !wrap.parentNode) return;
+    // Don't add if the user's own export bar (from a render fn) is already
+    // sitting directly above the table
+    const prev = wrap.previousElementSibling;
+    if (prev && /csv|export|download/i.test(prev.innerText || '') && prev.querySelector('button')) {
+      tbl._csvBtnAttached = true;
+      return;
+    }
+    // Derive a filename from the nearest h3 (or card heading)
+    const card = tbl.closest('.card');
+    const headingEl = card ? card.querySelector('h3') : null;
+    const heading = headingEl ? headingEl.innerText.split('\n')[0].trim() : 'table';
+    const bar = document.createElement('div');
+    bar.className = 'csv-auto-bar';
+    bar.style.cssText = 'display:flex;justify-content:flex-end;margin:2px 0 8px 0;';
+    const btn = document.createElement('button');
+    btn.type = 'button';
+    btn.className = 'refresh-btn csv-auto-btn';
+    btn.style.cssText = 'padding:5px 11px;font-size:11.5px;font-weight:600;';
+    btn.textContent = '📥 CSV';
+    btn.title = `Download "${heading}" as CSV`;
+    btn.addEventListener('click', (ev) => {
+      ev.preventDefault();
+      ev.stopPropagation();
+      try {
+        const csv = _tableToCSV(tbl);
+        const file = _slugifyForFile(heading) + '-' + (typeof localISODate === 'function' ? localISODate(new Date()) : new Date().toISOString().slice(0,10)) + '.csv';
+        _downloadCSV(csv, file);
+        btn.textContent = '✓ Downloaded';
+        setTimeout(() => { btn.textContent = '📥 CSV'; }, 1400);
+      } catch (e) {
+        console.warn('[csv export] failed:', e);
+        btn.textContent = '✕ Failed';
+        setTimeout(() => { btn.textContent = '📥 CSV'; }, 1400);
+      }
+    });
+    bar.appendChild(btn);
+    wrap.parentNode.insertBefore(bar, wrap);
+    tbl._csvBtnAttached = true;
+  });
+}
+// Debounced re-attach so quick consecutive DOM changes don't spam.
+let _csvAttachTimer = null;
+function _scheduleCsvAttach() {
+  if (_csvAttachTimer) return;
+  _csvAttachTimer = setTimeout(() => { _csvAttachTimer = null; attachCSVExports(); }, 80);
+}
+// Watch for newly-rendered tables anywhere in the document.
+if (typeof window !== 'undefined' && window.MutationObserver) {
+  const _csvObs = new MutationObserver(_scheduleCsvAttach);
+  // Defer attaching the observer until the DOM is ready
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', () => {
+      _csvObs.observe(document.body, { childList: true, subtree: true });
+      attachCSVExports();
+    });
+  } else {
+    _csvObs.observe(document.body, { childList: true, subtree: true });
+    attachCSVExports();
+  }
+}
+
 function localISODate(d) {
   if (!d || !(d instanceof Date) || isNaN(d.getTime())) return null;
   const yyyy = d.getFullYear();
