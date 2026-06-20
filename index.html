@@ -4,10 +4,11 @@
 <meta charset="UTF-8" />
 <title>Hypercare Dashboard</title>
 <meta name="viewport" content="width=device-width,initial-scale=1" />
-<meta name="theme-color" content="#0a0e1a" />
+<meta name="theme-color" content="#f7f7f6" />
 <link rel="preconnect" href="https://fonts.googleapis.com" />
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=Sora:wght@500;600;700;800&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet" />
+<link href="https://fonts.googleapis.com/css2?family=Outfit:wght@400;500;600;700;800&family=Inter:wght@400;500;600;700;800&family=Sora:wght@500;600;700;800&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet" />
+<script src="https://unpkg.com/@phosphor-icons/web@2.1.1"></script>
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.5.0/dist/chart.umd.js"></script>
 <script src="https://accounts.google.com/gsi/client" async defer></script>
 <style>
@@ -1911,31 +1912,560 @@
       transition-duration: 0.001ms !important;
     }
   }
+
+  /* ============================================================
+     ▰▰▰  SHOPDECK CLEAN REDESIGN — global override layer  ▰▰▰
+     Appended last so it wins the cascade. Warm-light primary
+     surface, cobalt-indigo brand, Outfit type, soft shadows,
+     fixed left sidebar, Phosphor icons, calmer motion. Dark
+     theme kept as a refined counterpart.
+     ============================================================ */
+  /* ---- Tokens: refined DARK (base / no attribute) ---- */
+  :root{
+    --bg-base:#0e1019; --bg-mid:#0e1019; --bg-deep:#0a0c14;
+    --surface:#181b27; --surface-2:#20242f; --surface-3:#262b38; --surface-strong:#181b27;
+    --border:#282c3a; --border-strong:#343a4b; --border-soft:#222634;
+    --text:#eef1f8; --text-muted:#c4cbda; --text-soft:#9aa2b6; --text-faint:#6e7689; --text-ghost:#525a70;
+    --brand:#8198ec; --brand-2:#a7b8f4; --brand-strong:#9aaef2; --brand-soft:rgba(129,152,236,0.15); --brand-100:rgba(129,152,236,0.32);
+    --accent:#5bd0e0; --accent-soft:rgba(91,208,224,0.14); --highlight:#f0a6dd;
+    --success:#5bd08a; --success-bg:rgba(91,208,138,0.14); --warn:#e8b15a; --warn-bg:rgba(232,177,90,0.14); --danger:#f08079; --danger-bg:rgba(240,128,121,0.14);
+    --bg-hover:rgba(255,255,255,0.05);
+    --shadow-sm:0 1px 2px rgba(0,0,0,.4);
+    --shadow-md:0 8px 22px -14px rgba(0,0,0,.65),0 1px 3px rgba(0,0,0,.5);
+    --shadow-lg:0 16px 38px -18px rgba(0,0,0,.7);
+    --shadow-xl:0 28px 64px -22px rgba(0,0,0,.75);
+    --ring:0 0 0 3px rgba(129,152,236,.4);
+  }
+  /* ---- Tokens: primary LIGHT (Shopdeck) ---- */
+  :root[data-theme="light"]{
+    --bg-base:#f7f7f6; --bg-mid:#f3f3f2; --bg-deep:#ededec;
+    --surface:#ffffff; --surface-2:#fbfbfb; --surface-3:#ffffff; --surface-strong:#ffffff;
+    --border:#eef0f3; --border-strong:#e3e4ea; --border-soft:#f2f2f5;
+    --text:#1b1c26; --text-muted:#43454f; --text-soft:#6b6c78; --text-faint:#9a9ba6; --text-ghost:#b6b8c4;
+    --brand:#4764cd; --brand-2:#5694f2; --brand-strong:#3f59be; --brand-soft:#eff2fa; --brand-100:#c8d1f0;
+    --accent:#1f8aa0; --accent-soft:rgba(31,138,160,0.10); --highlight:#b5279c;
+    --success:#1f8a5b; --success-bg:#e7f4ec; --warn:#b8730a; --warn-bg:#fdf2e2; --danger:#d2403a; --danger-bg:#fbeceb;
+    --bg-hover:#f3f4f8;
+    --shadow-sm:0 2px 1px rgba(20,22,40,.04),0 0 1px rgba(20,22,40,.14);
+    --shadow-md:0 4px 14px -7px rgba(20,22,40,.12),0 1px 3px rgba(20,22,40,.05);
+    --shadow-lg:0 14px 34px -16px rgba(20,22,40,.22);
+    --shadow-xl:0 26px 60px -20px rgba(20,22,40,.26);
+    --ring:0 0 0 3px rgba(71,100,205,.28);
+  }
+  /* ---- Type: Outfit everywhere ---- */
+  body, button, input, select, textarea,
+  h1,h2,h3,h4,h5, .tab,.subtab, table.t, table.t th, table.t td,
+  .sl-value,.sl-label,.quad-value,.quad-label,.crv-card-value,.crv-card-label,
+  .home-hero-title,.home-hero-eyebrow,.home-tile-title,.boot-title,.boot-pct,
+  .camp-mini-label,.signin-card h2,.card h3,.dr-section-h{
+    font-family:'Outfit',-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif !important;
+  }
+  /* ---- Kill gradient-clip text -> solid ---- */
+  h1, .home-hero-title{ background:none !important; -webkit-text-fill-color:currentColor !important; color:var(--text) !important; text-shadow:none !important; }
+  .boot-pct{ background:none !important; -webkit-text-fill-color:var(--brand) !important; color:var(--brand) !important; }
+  /* ---- Canvas: calm, warm, no animated hue / wireframes ---- */
+  body::before{ background:radial-gradient(900px 560px at 96% -10%, var(--brand-soft), transparent 60%), var(--bg-base) !important; animation:none !important; }
+  body::after{ display:none !important; }
+  .ambient-wireframes{ display:none !important; }
+  /* ---- App shell: fixed left sidebar ---- */
+  .wrap{ max-width:none !important; margin:0 0 0 248px !important; padding:24px clamp(20px,3vw,40px) 56px !important; }
+  #top-tabs.tabs{
+    position:fixed; top:0; left:0; bottom:0; width:248px; z-index:50;
+    display:flex; flex-direction:column; align-items:stretch; gap:3px;
+    margin:0 !important; padding:18px 14px !important;
+    background:var(--surface-strong) !important; border:none !important;
+    border-right:1px solid var(--border) !important; border-radius:0 !important;
+    box-shadow:var(--shadow-sm) !important; backdrop-filter:none !important; -webkit-backdrop-filter:none !important;
+    overflow-y:auto;
+  }
+  .sd-brand{ display:flex; align-items:center; gap:11px; padding:6px 8px 16px; margin-bottom:8px; border-bottom:1px solid var(--border); }
+  .sd-brand-mark{ width:36px; height:36px; flex:none; border-radius:10px; display:grid; place-items:center; background:linear-gradient(135deg,var(--brand),var(--brand-strong)); color:#fff; font-size:20px; box-shadow:var(--shadow-sm); }
+  .sd-brand-text{ display:flex; flex-direction:column; font-weight:700; font-size:15.5px; color:var(--text); letter-spacing:-.01em; line-height:1.1; }
+  .sd-brand-text small{ font-weight:500; font-size:10px; letter-spacing:.12em; text-transform:uppercase; color:var(--text-faint); margin-top:3px; }
+  .sd-nav-eyebrow{ font-size:10px; font-weight:700; letter-spacing:.12em; text-transform:uppercase; color:var(--text-faint); padding:6px 12px 4px; }
+  #top-tabs .tab{
+    display:flex !important; align-items:center; gap:11px; width:100%; text-align:left; justify-content:flex-start;
+    padding:9px 12px !important; border-radius:9px !important;
+    font-size:13.5px !important; font-weight:500 !important; color:var(--text-soft) !important;
+    background:transparent !important; border:none !important; box-shadow:none !important;
+  }
+  #top-tabs .tab:hover{ background:var(--bg-hover) !important; color:var(--text) !important; }
+  #top-tabs .tab.active, #top-tabs .tab.tab-home.active{ background:var(--brand-soft) !important; color:var(--brand) !important; font-weight:600 !important; box-shadow:inset 3px 0 0 var(--brand) !important; }
+  #top-tabs .tab.tab-home{ background:transparent !important; border:none !important; }
+  .sd-navico{ font-size:19px; flex:none; }
+  .sd-navlbl{ flex:1; }
+  #top-tabs .tab .count{ margin-left:auto !important; padding:1px 8px !important; border-radius:999px !important; background:var(--bg-hover) !important; color:var(--text-soft) !important; border:1px solid var(--border) !important; font-size:10.5px; font-weight:700; }
+  #top-tabs .tab.active .count{ background:#fff !important; color:var(--brand) !important; border-color:transparent !important; }
+  #top-tabs .tab .count:empty{ display:none !important; }
+  /* ---- Top bar ---- */
+  header.top{ background:var(--surface) !important; border:1px solid var(--border) !important; box-shadow:var(--shadow-sm) !important; border-radius:14px !important; backdrop-filter:none !important; -webkit-backdrop-filter:none !important; overflow:visible; }
+  header.top::before{ display:none !important; }
+  .title::before{ background:var(--brand) !important; box-shadow:none !important; animation:none !important; }
+  h1{ font-size:20px !important; font-weight:700 !important; }
+  .subtitle{ color:var(--text-soft) !important; }
+  /* ---- De-glass + soft shadow for all surfaces ---- */
+  .card,.sl-card,.quad-card,.home-tile,.filter-bar,.subtabs,.crv-card,.camp-mini-card,
+  .pending-card,.dr-card,.tbl-wrap,.boot-loader-card,.signin-card,.chip,.refresh-btn,
+  .status-pill,table.t th,.dr-controls,.dr-select{ backdrop-filter:none !important; -webkit-backdrop-filter:none !important; }
+  .quad-card::after,.sl-card::before,.home-tile::before,.quad-card::before{ display:none !important; content:none !important; }
+  .card,.crv-card,.camp-mini-card,.dr-card{ background:var(--surface) !important; border:1px solid var(--border) !important; box-shadow:var(--shadow-sm) !important; border-radius:14px !important; }
+  .card:hover{ border-color:var(--border-strong) !important; }
+  .pending-card{ background:var(--bg-mid) !important; border:1px dashed var(--border-strong) !important; border-radius:12px !important; }
+  .filter-bar,.subtabs,.dr-controls{ background:var(--surface) !important; border:1px solid var(--border) !important; box-shadow:var(--shadow-sm) !important; border-radius:12px !important; }
+  /* ---- KPI / summary cards ---- */
+  .sl-card{ background:var(--surface) !important; border:1px solid var(--border) !important; box-shadow:var(--shadow-sm) !important; border-radius:14px !important; }
+  .sl-value{ color:var(--text) !important; }
+  .sl-bar{ background:var(--bg-deep) !important; }
+  .sl-bar>span{ background:linear-gradient(90deg,var(--brand),var(--brand-2)) !important; box-shadow:none !important; }
+  .sl-card.overall, :root[data-theme="light"] .sl-card.overall{ background:linear-gradient(135deg,var(--brand) 0%, var(--brand-strong) 100%) !important; border-color:transparent !important; color:#fff !important; box-shadow:var(--shadow-md) !important; }
+  .sl-card.overall .sl-value{ color:#fff !important; }
+  .sl-card.overall .sl-bar{ background:rgba(255,255,255,0.25) !important; }
+  .sl-card.overall .sl-bar>span{ background:#fff !important; }
+  /* quad cards -> clean white */
+  .quad-card,
+  .quad-card:nth-child(1),.quad-card:nth-child(2),.quad-card:nth-child(3),.quad-card:nth-child(4),
+  :root[data-theme="light"] .quad-card,
+  :root[data-theme="light"] .quad-card:nth-child(1),:root[data-theme="light"] .quad-card:nth-child(2),
+  :root[data-theme="light"] .quad-card:nth-child(3),:root[data-theme="light"] .quad-card:nth-child(4){
+    background:var(--surface) !important; border:1px solid var(--border) !important; box-shadow:var(--shadow-sm) !important; border-radius:14px !important;
+  }
+  .quad-value{ color:var(--text) !important; } .quad-label{ color:var(--text-soft) !important; } .quad-cta{ color:var(--text-faint) !important; } .quad-icon{ filter:none !important; }
+  .quad-card:hover,.sl-clickable:hover{ transform:translateY(-3px) !important; border-color:var(--brand) !important; box-shadow:var(--shadow-md) !important; }
+  /* ---- Home ---- */
+  .home-hero{ text-align:left !important; margin:6px 0 26px !important; }
+  .home-hero-eyebrow{ color:var(--brand) !important; letter-spacing:.22em !important; }
+  .home-hero-title{ font-size:34px !important; }
+  .home-hero-sub{ margin:0 !important; color:var(--text-soft) !important; }
+  .home-grid{ gap:16px !important; }
+  .home-tile{ animation:none !important; min-height:0 !important; background:var(--surface) !important; border:1px solid var(--border) !important; box-shadow:var(--shadow-sm) !important; border-radius:16px !important; padding:20px 20px 54px !important; }
+  :root[data-theme="light"] .home-tile{ background:var(--surface) !important; border-color:var(--border) !important; }
+  .home-tile:hover{ transform:translateY(-4px) !important; border-color:var(--brand) !important; box-shadow:var(--shadow-md) !important; background:var(--surface) !important; }
+  .home-tile-icon{ width:44px; height:44px; border-radius:11px; margin-bottom:14px !important; display:grid; place-items:center; font-size:22px !important; background:var(--brand-soft) !important; color:var(--brand) !important; filter:none !important; }
+  .home-tile-title{ color:var(--text) !important; font-size:16.5px !important; }
+  .home-tile-sub{ color:var(--text-soft) !important; }
+  .home-tile-arrow{ background:var(--brand-soft) !important; color:var(--brand) !important; box-shadow:none !important; font-size:15px !important; }
+  .home-tile:hover .home-tile-arrow{ background:var(--brand) !important; color:#fff !important; }
+  /* ---- Subtabs / chips ---- */
+  .subtab{ color:var(--text-soft) !important; }
+  .subtab:hover{ background:var(--bg-hover) !important; color:var(--text) !important; }
+  .subtab.active, :root[data-theme="light"] .subtab.active{ background:var(--brand-soft) !important; color:var(--brand) !important; box-shadow:none !important; }
+  .chip{ background:var(--surface) !important; border:1px solid var(--border-strong) !important; color:var(--text-soft) !important; box-shadow:none !important; }
+  .chip:hover{ border-color:var(--brand) !important; color:var(--text) !important; transform:none !important; }
+  .chip.on, :root[data-theme="light"] .chip.all.on{ background:var(--brand) !important; border-color:transparent !important; color:#fff !important; box-shadow:none !important; }
+  .chip.all{ border-style:dashed !important; background:var(--bg-mid) !important; }
+  /* ---- Buttons ---- */
+  .refresh-btn{ background:var(--brand) !important; border:1px solid transparent !important; color:#fff !important; box-shadow:none !important; }
+  .refresh-btn:hover{ background:var(--brand-strong) !important; transform:none !important; box-shadow:var(--shadow-sm) !important; }
+  .refresh-btn:disabled{ background:var(--bg-deep) !important; color:var(--text-faint) !important; }
+  .status-pill .dot{ box-shadow:none !important; }
+  /* ---- Tables ---- */
+  .tbl-wrap{ background:var(--surface) !important; border:1px solid var(--border) !important; border-radius:12px !important; }
+  table.t th, :root[data-theme="light"] table.t th{ background:var(--bg-deep) !important; color:var(--text-soft) !important; border-bottom:1px solid var(--border-strong) !important; }
+  table.t th:hover, :root[data-theme="light"] table.t th:hover{ background:var(--brand-soft) !important; color:var(--brand) !important; }
+  table.t td.gc, :root[data-theme="light"] table.t td.gc{ color:var(--brand) !important; }
+  table.t tbody tr:nth-child(odd) td, :root[data-theme="light"] table.t tbody tr:nth-child(odd) td{ background-color:transparent !important; }
+  table.t tbody tr:hover td, table.t tbody tr:nth-child(odd):hover td,
+  :root[data-theme="light"] table.t tbody tr:hover td, :root[data-theme="light"] table.t tbody tr:nth-child(odd):hover td{ background:var(--brand-soft) !important; color:var(--text) !important; }
+  .tbl-wrap::-webkit-scrollbar-thumb{ background:var(--border-strong) !important; }
+  /* ---- Drill / daily hero ---- */
+  .dr-card.dr-hero, :root[data-theme="light"] .dr-card.dr-hero{ background:linear-gradient(135deg,var(--brand),var(--brand-strong)) !important; }
+  .drill-panel, :root[data-theme="light"] .drill-panel{ background:var(--surface) !important; border:1px solid var(--border) !important; box-shadow:var(--shadow-xl) !important; }
+  .dr-section-h, :root[data-theme="light"] .dr-section-h{ background:var(--brand-soft) !important; border-left-color:var(--brand) !important; }
+  /* ---- Boot loader ---- */
+  .boot-loader-bg, :root[data-theme="light"] .boot-loader-bg{ background:var(--bg-base) !important; backdrop-filter:none !important; }
+  .boot-loader-card, :root[data-theme="light"] .boot-loader-card{ background:var(--surface) !important; border:1px solid var(--border) !important; box-shadow:var(--shadow-lg) !important; border-radius:16px !important; }
+  .boot-emoji{ filter:none !important; animation:none !important; }
+  .boot-pulse{ background:radial-gradient(circle,var(--brand-soft) 0%,transparent 70%) !important; }
+  .boot-title{ color:var(--text) !important; }
+  .boot-bar-fill{ background:var(--brand) !important; box-shadow:none !important; animation:none !important; }
+  /* ---- Sign-in ---- */
+  .signin-card, :root[data-theme="light"] .signin-card{ background:var(--surface) !important; border:1px solid var(--border) !important; box-shadow:var(--shadow-xl) !important; border-radius:16px !important; }
+  .signin-glyph{ background:var(--brand-soft) !important; box-shadow:none !important; }
+  .signin-btn{ background:var(--brand) !important; box-shadow:none !important; }
+  .signin-btn:hover{ background:var(--brand-strong) !important; transform:none !important; box-shadow:var(--shadow-md) !important; }
+  /* ---- Misc ---- */
+  .spinner{ box-shadow:none !important; border-top-color:var(--brand) !important; border-right-color:var(--brand-2) !important; }
+  ::selection{ background:rgba(71,100,205,0.22) !important; }
+  .home-hero-blink{ color:var(--brand) !important; }
+  /* ---- Responsive: collapse sidebar under 1024px ---- */
+  @media (max-width:1024px){
+    #top-tabs.tabs{ position:static; width:auto; height:auto; flex-direction:row; flex-wrap:wrap; gap:4px; border-right:none !important; border-bottom:1px solid var(--border) !important; overflow:visible; margin-bottom:18px !important; }
+    #top-tabs .sd-brand{ width:100%; border-bottom:none; padding-bottom:6px; margin-bottom:2px; }
+    #top-tabs .sd-nav-eyebrow{ display:none; }
+    #top-tabs .tab{ width:auto !important; }
+    #top-tabs .tab.active{ box-shadow:none !important; }
+    .sd-navlbl{ flex:none; }
+    .wrap{ margin-left:0 !important; padding:18px 16px 44px !important; }
+  }
+
+  /* ============================================================
+     CONTROL LAYOUT — icon rail + editorial header + bento home
+     (appended last; wins over the earlier reskin layer)
+     ============================================================ */
+  #top-tabs.tabs{ width:76px !important; align-items:center !important; padding:16px 8px !important; gap:6px !important; }
+  .sd-brand{ justify-content:center !important; padding:4px 0 14px !important; width:100%; }
+  .sd-brand-text{ display:none !important; }
+  .sd-brand-mark{ margin:0 auto !important; }
+  .sd-nav-eyebrow{ display:none !important; }
+  #top-tabs .tab{ width:48px !important; height:48px !important; justify-content:center !important; padding:0 !important; gap:0 !important; border-radius:13px !important; }
+  .sd-navlbl{ display:none !important; }
+  #top-tabs .tab .count{ display:none !important; }
+  .sd-navico{ font-size:21px !important; }
+  #top-tabs .tab.active, #top-tabs .tab.tab-home.active{ box-shadow:inset 0 0 0 1px var(--brand-100) !important; }
+  .wrap{ margin-left:76px !important; padding:30px clamp(20px,3vw,40px) 56px !important; }
+  /* editorial header */
+  header.top{ background:transparent !important; border:none !important; box-shadow:none !important; border-radius:0 !important; padding:0 0 18px !important; align-items:flex-start !important; }
+  .title{ flex-direction:column !important; align-items:flex-start !important; gap:0 !important; }
+  .title::before{ display:none !important; }
+  .title::after{ content:"SHOPDECK · HYPERCARE"; font-size:11px; font-weight:700; letter-spacing:.26em; text-transform:uppercase; color:var(--brand); order:-1; margin-bottom:9px; }
+  h1{ font-size:33px !important; font-weight:700 !important; letter-spacing:-.03em !important; }
+  .subtitle{ margin-top:8px !important; font-size:13.5px !important; }
+  /* bento home */
+  .home-hero{ text-align:left !important; margin:2px 0 22px !important; }
+  .home-hero-eyebrow{ display:none !important; }
+  .home-hero-title{ font-size:30px !important; }
+  #home-grid{ grid-template-columns:repeat(auto-fill,minmax(236px,1fr)) !important; grid-auto-rows:minmax(150px,auto) !important; }
+  #home-grid .home-tile:first-child{ grid-column:span 2 !important; grid-row:span 2 !important; }
+  #home-grid .home-tile:first-child .home-tile-icon{ width:52px !important; height:52px !important; font-size:26px !important; }
+  #home-grid .home-tile:first-child .home-tile-title{ font-size:20px !important; }
+  @media (max-width:1024px){
+    #top-tabs.tabs{ width:auto !important; flex-direction:row !important; }
+    .wrap{ margin-left:0 !important; }
+    #home-grid .home-tile:first-child{ grid-column:auto !important; grid-row:auto !important; }
+  }
+
+  /* ============================================================
+     ✦ V2 SHELL — iOS 26 "Liquid Glass" redesign
+     Appended last → wins the cascade over every earlier layer.
+     Fixes: (a) sidebar↔content overlap (grid shell, no fixed rail),
+            (b) centered glass login, (c) springy liquid motion.
+     ============================================================ */
+  :root{
+    --railw: 244px;
+    --gap-shell: 26px;
+    --glass: rgba(255,255,255,0.055);
+    --glass-2: rgba(255,255,255,0.085);
+    --glass-line: rgba(255,255,255,0.10);
+    --glass-hi: rgba(255,255,255,0.16);
+    --blur: 30px;
+    --spring: cubic-bezier(.34,1.56,.64,1);     /* overshoot — the iOS bounce */
+    --spring-soft: cubic-bezier(.22,1,.36,1);    /* settle, no overshoot */
+    --radius-xl: 26px;
+    --radius-lg: 18px;
+  }
+  :root[data-theme="light"]{
+    --glass: rgba(255,255,255,0.62);
+    --glass-2: rgba(255,255,255,0.80);
+    --glass-line: rgba(15,23,42,0.07);
+    --glass-hi: rgba(255,255,255,0.9);
+  }
+
+  /* ---- Ambient aurora behind everything (liquid glass needs colour to refract) ---- */
+  body::before{
+    background:
+      radial-gradient(60vw 50vh at 12% -8%, rgba(99,102,241,0.22), transparent 60%),
+      radial-gradient(55vw 45vh at 100% 0%, rgba(34,211,238,0.16), transparent 55%),
+      radial-gradient(60vw 60vh at 50% 120%, rgba(139,92,246,0.18), transparent 60%) !important;
+    z-index:-2 !important;
+  }
+  :root[data-theme="light"] body::before{
+    background:
+      radial-gradient(60vw 50vh at 12% -8%, rgba(99,102,241,0.16), transparent 60%),
+      radial-gradient(55vw 45vh at 100% 0%, rgba(34,211,238,0.12), transparent 55%),
+      radial-gradient(60vw 60vh at 50% 120%, rgba(139,92,246,0.12), transparent 60%) !important;
+  }
+
+  /* ---- Grid app-shell: kills the fixed-rail containing-block overlap ---- */
+  .wrap{
+    display:grid !important;
+    grid-template-columns: var(--railw) minmax(0,1fr) !important;
+    column-gap: var(--gap-shell) !important; row-gap:0 !important;
+    align-items:start !important;
+    max-width:1660px !important; margin:0 auto !important;
+    padding:22px 30px 64px !important;
+    transform:none !important;          /* defeat pageIn transform (the overlap bug) */
+    animation:none !important;
+  }
+  header.top, #fetch-errors-banner, .view{ grid-column:2 !important; min-width:0 !important; }
+
+  /* ---- The floating glass rail ---- */
+  #top-tabs.tabs{
+    grid-column:1 !important; grid-row:1 / 9999 !important;
+    position:sticky !important; top:22px !important;
+    width:auto !important; height:calc(100vh - 44px) !important;
+    display:flex !important; flex-direction:column !important; align-items:stretch !important;
+    gap:3px !important; margin:0 !important; padding:16px 12px !important; overflow:visible !important;
+    background:var(--glass) !important;
+    -webkit-backdrop-filter:blur(var(--blur)) saturate(180%) !important;
+    backdrop-filter:blur(var(--blur)) saturate(180%) !important;
+    border:1px solid var(--glass-line) !important; border-radius:var(--radius-xl) !important;
+    box-shadow:0 24px 60px -24px rgba(0,0,0,.65), inset 0 1px 0 var(--glass-hi) !important;
+  }
+  /* brand lockup — bring back the wordmark */
+  #top-tabs .sd-brand{ display:flex !important; justify-content:flex-start !important; align-items:center !important; gap:11px !important; padding:6px 8px 14px !important; margin-bottom:6px !important; border-bottom:1px solid var(--glass-line) !important; width:auto !important; }
+  #top-tabs .sd-brand-text{ display:flex !important; }
+  .sd-brand-mark{ box-shadow:0 8px 20px -6px rgba(99,102,241,.7), inset 0 1px 0 rgba(255,255,255,.4) !important; }
+  #top-tabs .sd-nav-eyebrow{ display:block !important; padding:10px 12px 6px !important; }
+
+  /* nav items: icon + label + count, with the sliding indicator behind them */
+  #top-tabs .tab{
+    position:relative; z-index:1;
+    display:flex !important; align-items:center !important; gap:13px !important;
+    width:100% !important; height:auto !important; justify-content:flex-start !important;
+    padding:10px 13px !important; border-radius:14px !important;
+    font-size:13.5px !important; font-weight:540 !important; color:var(--text-soft) !important;
+    background:transparent !important; border:none !important; box-shadow:none !important;
+    transition:color .3s var(--spring-soft), transform .35s var(--spring) !important;
+  }
+  #top-tabs .tab .sd-navlbl{ display:block !important; flex:1 !important; text-align:left !important; }
+  #top-tabs .tab .sd-navico{ font-size:19px !important; flex:none !important; transition:transform .4s var(--spring) !important; }
+  #top-tabs .tab .count{ display:inline-block !important; margin-left:auto !important; }
+  #top-tabs .tab:hover{ color:var(--text) !important; background:var(--glass-2) !important; transform:translateX(2px) !important; }
+  #top-tabs .tab:hover .sd-navico{ transform:scale(1.12) rotate(-4deg) !important; }
+  #top-tabs .tab.active{ color:#fff !important; background:transparent !important; box-shadow:none !important; font-weight:650 !important; }
+  :root[data-theme="light"] #top-tabs .tab.active{ color:#fff !important; }
+  #top-tabs .tab.active .count{ background:rgba(255,255,255,.22) !important; color:#fff !important; border-color:transparent !important; }
+  /* the liquid lozenge that glides between items */
+  .nav-indicator{
+    position:absolute; left:9px; right:9px; top:0; height:0;
+    border-radius:14px; z-index:0; pointer-events:none; opacity:0;
+    background:linear-gradient(135deg, var(--brand-strong), var(--brand-2)) !important;
+    box-shadow:0 10px 26px -8px rgba(99,102,241,.7), inset 0 1px 0 rgba(255,255,255,.3);
+    transition:transform .52s var(--spring), height .52s var(--spring), opacity .3s ease;
+  }
+  @media (max-width:1024px){ .nav-indicator{ display:none !important; } }
+
+  /* ---- Editorial header sits cleanly in column 2 now ---- */
+  header.top{ padding:4px 2px 16px !important; }
+
+  /* ---- Home: liquid bento tiles with spring entrance + tilt-on-hover ---- */
+  #home-grid .home-tile{
+    background:var(--glass) !important;
+    -webkit-backdrop-filter:blur(20px) saturate(160%) !important; backdrop-filter:blur(20px) saturate(160%) !important;
+    border:1px solid var(--glass-line) !important; border-radius:var(--radius-xl) !important;
+    box-shadow:0 18px 44px -22px rgba(0,0,0,.5), inset 0 1px 0 var(--glass-hi) !important;
+    animation:v2TileIn .6s var(--spring) both !important;
+    transition:transform .45s var(--spring), box-shadow .45s var(--spring-soft), border-color .3s ease !important;
+  }
+  #home-grid .home-tile:nth-child(1){ animation-delay:.02s !important; }
+  #home-grid .home-tile:nth-child(2){ animation-delay:.07s !important; }
+  #home-grid .home-tile:nth-child(3){ animation-delay:.12s !important; }
+  #home-grid .home-tile:nth-child(4){ animation-delay:.17s !important; }
+  #home-grid .home-tile:nth-child(5){ animation-delay:.22s !important; }
+  #home-grid .home-tile:nth-child(6){ animation-delay:.27s !important; }
+  #home-grid .home-tile:nth-child(7){ animation-delay:.32s !important; }
+  #home-grid .home-tile:nth-child(8){ animation-delay:.37s !important; }
+  #home-grid .home-tile:hover{
+    transform:translateY(-6px) scale(1.012) !important;
+    border-color:rgba(99,102,241,.45) !important;
+    box-shadow:0 30px 60px -22px rgba(99,102,241,.4), inset 0 1px 0 var(--glass-hi) !important;
+  }
+  .home-tile-icon{
+    background:linear-gradient(135deg, var(--brand-soft), rgba(139,92,246,.12)) !important;
+    border:1px solid var(--glass-line) !important;
+    transition:transform .45s var(--spring) !important;
+  }
+  .home-tile:hover .home-tile-icon{ transform:scale(1.1) rotate(-5deg) !important; }
+  .home-tile-arrow{ transition:transform .4s var(--spring), background .3s ease !important; }
+  .home-tile:hover .home-tile-arrow{ transform:translateX(5px) !important; }
+
+  /* ---- View transitions: spring slide-up ---- */
+  .view.active{ animation:v2ViewIn .5s var(--spring-soft) both !important; }
+
+  /* ---- Cards / subtabs / filter bars → glass ---- */
+  .card, .crv-card, .camp-mini-card, .dr-card, .tbl-wrap{
+    background:var(--glass) !important;
+    -webkit-backdrop-filter:blur(18px) saturate(150%) !important; backdrop-filter:blur(18px) saturate(150%) !important;
+    border:1px solid var(--glass-line) !important; border-radius:var(--radius-lg) !important;
+    box-shadow:0 16px 40px -24px rgba(0,0,0,.5), inset 0 1px 0 var(--glass-hi) !important;
+  }
+  .subtabs, .filter-bar, .dr-controls{
+    background:var(--glass) !important;
+    -webkit-backdrop-filter:blur(18px) saturate(150%) !important; backdrop-filter:blur(18px) saturate(150%) !important;
+    border:1px solid var(--glass-line) !important; border-radius:15px !important;
+  }
+  .subtab{ transition:color .25s ease, background .3s var(--spring-soft) !important; }
+  .subtab.active{ background:linear-gradient(135deg, var(--brand-soft), rgba(139,92,246,.14)) !important; color:var(--brand) !important; }
+
+  /* ---- Centered liquid-glass LOGIN ---- */
+  .signin-overlay{
+    background:rgba(6,8,15,.62) !important;
+    -webkit-backdrop-filter:blur(26px) saturate(150%) !important; backdrop-filter:blur(26px) saturate(150%) !important;
+    z-index:9500 !important;
+    align-items:center !important; justify-content:center !important;
+  }
+  :root[data-theme="light"] .signin-overlay{ background:rgba(226,232,240,.55) !important; }
+  .signin-card{
+    position:relative; overflow:hidden;
+    width:min(430px,100%) !important;
+    background:var(--glass-2) !important;
+    -webkit-backdrop-filter:blur(40px) saturate(180%) !important; backdrop-filter:blur(40px) saturate(180%) !important;
+    border:1px solid var(--glass-hi) !important; border-radius:30px !important;
+    box-shadow:0 40px 90px -30px rgba(0,0,0,.7), 0 0 0 1px rgba(139,92,246,.12), inset 0 1px 0 var(--glass-hi) !important;
+    animation:v2CardIn .6s var(--spring) both !important;
+  }
+  .signin-card::before{      /* slow-drifting aurora orb behind the content */
+    content:""; position:absolute; inset:-40% -20% auto -20%; height:260px; z-index:0;
+    background:radial-gradient(closest-side, rgba(99,102,241,.5), transparent 70%),
+               radial-gradient(closest-side at 70% 40%, rgba(34,211,238,.35), transparent 70%);
+    filter:blur(10px); animation:v2Orb 9s ease-in-out infinite alternate; pointer-events:none;
+  }
+  .signin-card > *{ position:relative; z-index:1; }
+  .signin-glyph{
+    background:var(--glass-2) !important; border:1px solid var(--glass-hi) !important;
+    box-shadow:0 14px 30px -10px rgba(0,0,0,.4), inset 0 1px 0 var(--glass-hi) !important;
+    animation:v2Float 4s ease-in-out infinite !important;
+  }
+  .signin-btn{ border-radius:14px !important; box-shadow:0 14px 32px -10px rgba(99,102,241,.6), inset 0 1px 0 rgba(255,255,255,.25) !important; transition:transform .35s var(--spring), box-shadow .3s ease !important; }
+  .signin-btn:hover{ transform:translateY(-3px) scale(1.02) !important; }
+
+  /* ---- Boot loader → glass ---- */
+  .boot-loader-card{
+    background:var(--glass-2) !important;
+    -webkit-backdrop-filter:blur(36px) saturate(170%) !important; backdrop-filter:blur(36px) saturate(170%) !important;
+    border:1px solid var(--glass-hi) !important; border-radius:26px !important;
+    box-shadow:0 36px 80px -30px rgba(0,0,0,.65), inset 0 1px 0 var(--glass-hi) !important;
+  }
+
+  /* ---- Keyframes ---- */
+  @keyframes v2ViewIn{ from{ opacity:0; transform:translateY(16px) scale(.992); } to{ opacity:1; transform:none; } }
+  @keyframes v2TileIn{ from{ opacity:0; transform:translateY(26px) scale(.96); } to{ opacity:1; transform:none; } }
+  @keyframes v2CardIn{ from{ opacity:0; transform:translateY(30px) scale(.94); } to{ opacity:1; transform:none; } }
+  @keyframes v2Orb{ from{ transform:translate(-6%,0) scale(1); } to{ transform:translate(8%,6%) scale(1.15); } }
+  @keyframes v2Float{ 0%,100%{ transform:translateY(0); } 50%{ transform:translateY(-6px); } }
+
+  /* ---- Compact top-right loading pill (replaces full-screen boot loader) ---- */
+  .hc-mini-loader{
+    position:fixed; top:16px; right:18px; z-index:300;
+    display:none; align-items:center; gap:11px;
+    padding:10px 14px; min-width:248px; max-width:min(86vw,320px);
+    border-radius:16px;
+    background:var(--glass-2) !important;
+    -webkit-backdrop-filter:blur(30px) saturate(180%); backdrop-filter:blur(30px) saturate(180%);
+    border:1px solid var(--glass-hi);
+    box-shadow:0 18px 44px -18px rgba(0,0,0,.55), inset 0 1px 0 var(--glass-hi);
+    animation:v2CardIn .45s var(--spring) both;
+  }
+  .hc-mini-loader.show{ display:flex; }
+  .hc-mini-spin{
+    width:18px; height:18px; flex:none; border-radius:50%;
+    border:2.5px solid var(--glass-line); border-top-color:var(--brand); border-right-color:var(--brand-2);
+    animation:hcSpin .7s linear infinite;
+  }
+  .hc-mini-body{ flex:1; min-width:0; display:flex; flex-direction:column; gap:5px; }
+  .hc-mini-top{ display:flex; align-items:baseline; justify-content:space-between; gap:8px; }
+  .hc-mini-title{
+    font-size:12px; font-weight:600; color:var(--text);
+    white-space:nowrap; overflow:hidden; text-overflow:ellipsis;
+  }
+  .hc-mini-count{ font-size:11px !important; color:var(--text-soft) !important; font-weight:700; flex:none; }
+  .hc-mini-track{
+    height:5px !important; border-radius:999px; overflow:hidden;
+    background:var(--glass-line) !important; margin:0 !important;
+  }
+  .hc-mini-fill{
+    height:100% !important; border-radius:999px;
+    background:linear-gradient(90deg,var(--brand),var(--brand-2)) !important;
+    box-shadow:none !important;
+    transition:width .45s var(--spring-soft) !important;
+  }
+  .hc-mini-pct{ font-size:13px !important; font-weight:800 !important; color:var(--brand) !important; flex:none; font-variant-numeric:tabular-nums; }
+  @keyframes hcSpin{ to{ transform:rotate(360deg); } }
+  @media (max-width:1024px){ .hc-mini-loader{ top:10px; right:10px; min-width:0; } }
+
+  /* ---- Home bento: EQUAL tiles + glowing accent borders (both themes) ---- */
+  #home-grid{
+    grid-template-columns:repeat(auto-fill, minmax(258px, 1fr)) !important;
+    grid-auto-rows:1fr !important;
+    gap:18px !important;
+    align-items:stretch !important;
+  }
+  /* kill the 2x2 hero span so every tile is the same size */
+  #home-grid .home-tile, #home-grid .home-tile:first-child{
+    grid-column:auto !important; grid-row:auto !important;
+    min-height:196px !important; height:100% !important;
+    padding:22px 22px 56px !important;
+    border:1.5px solid transparent !important; border-radius:22px !important;
+    /* glass fill on the padding box, a fading accent-colour ring on the border box */
+    background:
+      linear-gradient(165deg, var(--glass-2), var(--glass)) padding-box,
+      linear-gradient(150deg, var(--tile-glow, var(--brand-soft)), transparent 58%) border-box !important;
+    -webkit-backdrop-filter:blur(22px) saturate(165%) !important; backdrop-filter:blur(22px) saturate(165%) !important;
+    box-shadow:
+      0 16px 38px -24px rgba(0,0,0,.55),
+      0 0 26px -16px var(--tile-glow, transparent),
+      inset 0 1px 0 var(--glass-hi) !important;
+    transition:transform .45s var(--spring), box-shadow .45s var(--spring-soft), background .35s ease !important;
+  }
+  #home-grid .home-tile:first-child .home-tile-icon{ width:46px !important; height:46px !important; font-size:23px !important; }
+  #home-grid .home-tile:first-child .home-tile-title{ font-size:18px !important; }
+  /* accent-tinted icon chip per tile */
+  #home-grid .home-tile .home-tile-icon{
+    background:linear-gradient(140deg, var(--tile-glow, var(--brand-soft)), transparent) !important;
+    border:1px solid var(--glass-line) !important;
+    box-shadow:0 8px 20px -10px var(--tile-glow, transparent), inset 0 1px 0 var(--glass-hi) !important;
+  }
+  #home-grid .home-tile .home-tile-arrow{
+    background:linear-gradient(140deg, var(--tile-glow, var(--brand-soft)), var(--glass-2)) !important;
+    border:1px solid var(--glass-line) !important;
+  }
+  /* hover: lift + intensify the glow ring */
+  #home-grid .home-tile:hover, #home-grid .home-tile:first-child:hover{
+    transform:translateY(-7px) scale(1.015) !important;
+    background:
+      linear-gradient(165deg, var(--glass-2), var(--glass-2)) padding-box,
+      linear-gradient(150deg, var(--tile-glow, var(--brand)), transparent 78%) border-box !important;
+    box-shadow:
+      0 30px 56px -26px var(--tile-glow, rgba(0,0,0,.5)),
+      0 0 0 1px var(--tile-glow, transparent),
+      inset 0 1px 0 var(--glass-hi) !important;
+  }
+  #home-grid .home-tile:hover .home-tile-icon{ transform:scale(1.1) rotate(-5deg) !important; }
+  #home-grid .home-tile:hover .home-tile-arrow{ transform:translateX(5px) !important; }
+  /* hero a touch more polished */
+  .home-hero-title{ background:linear-gradient(120deg, var(--text), var(--brand) 140%); -webkit-background-clip:text; background-clip:text; }
+
+  @media (prefers-reduced-motion: reduce){
+    .view.active, #home-grid .home-tile, .signin-card, .signin-glyph, .signin-card::before{ animation:none !important; }
+    .nav-indicator{ transition:opacity .2s ease !important; }
+  }
+
+  /* ---- Responsive: rail → horizontal glass bar on top ---- */
+  @media (max-width:1024px){
+    .wrap{ display:block !important; padding:16px 16px 48px !important; }
+    #top-tabs.tabs{
+      position:sticky !important; top:10px !important; height:auto !important;
+      flex-direction:row !important; flex-wrap:wrap !important; align-items:center !important;
+      gap:6px !important; margin:0 0 18px !important; border-radius:20px !important;
+    }
+    header.top, #fetch-errors-banner, .view{ grid-column:auto !important; }
+    #top-tabs .sd-brand{ width:100% !important; border-bottom:none !important; padding-bottom:4px !important; }
+    #top-tabs .tab{ width:auto !important; flex:0 0 auto !important; }
+    #top-tabs .tab .sd-navlbl{ display:none !important; }
+    #top-tabs .tab .count{ display:none !important; }
+    #top-tabs .sd-nav-eyebrow{ display:none !important; }
+  }
 </style>
 </head>
 <body>
 <!-- Post-signin progress overlay. Shown after OAuth succeeds while sheets are
      fetched in parallel. Hidden as soon as the last sheet resolves, then the
      homepage fades in underneath. -->
-<div id="boot-loader" class="boot-loader" aria-hidden="true">
-  <div class="boot-loader-bg"></div>
-  <div class="boot-loader-card">
-    <div class="boot-loader-logo">
-      <span class="boot-pulse"></span>
-      <span class="boot-pulse boot-pulse-2"></span>
-      <div class="boot-emoji">📊</div>
+<!-- Compact top-right loading pill. The homepage is visible immediately after
+     sign-in; this just shows live-data progress and auto-hides when done.
+     (IDs kept identical to the old full-screen loader so the JS is unchanged.) -->
+<div id="boot-loader" class="hc-mini-loader" aria-hidden="true" role="status">
+  <span class="hc-mini-spin"></span>
+  <div class="hc-mini-body">
+    <div class="hc-mini-top">
+      <span class="hc-mini-title" id="boot-current-sheet">Loading live data…</span>
+      <span class="boot-count hc-mini-count" id="boot-count">0 / 0</span>
     </div>
-    <div class="boot-title">Loading the Hypercare command center</div>
-    <div class="boot-sub" id="boot-current-sheet">Connecting to Google Sheets…</div>
-    <div class="boot-bar-track">
-      <div class="boot-bar-fill" id="boot-bar-fill" style="width:0%;"></div>
-      <div class="boot-bar-shine"></div>
-    </div>
-    <div class="boot-meta">
-      <span class="boot-pct" id="boot-pct">0%</span>
-      <span class="boot-count" id="boot-count">0 / 0 sheets</span>
+    <div class="boot-bar-track hc-mini-track">
+      <div class="boot-bar-fill hc-mini-fill" id="boot-bar-fill" style="width:0%;"></div>
     </div>
   </div>
+  <span class="boot-pct hc-mini-pct" id="boot-pct">0%</span>
 </div>
 <!-- Ambient decorative wireframes (purely visual; non-interactive) -->
 <!-- viewBox 0 0 1400 900 + preserveAspectRatio="xMidYMid slice" lets us use real
@@ -1995,15 +2525,20 @@
   <div id="fetch-errors-banner" style="display:none;"></div>
 
   <div class="tabs" role="tablist" id="top-tabs">
-    <button class="tab tab-home" data-team="Home" title="Home" aria-label="Home">🏠 <span style="font-weight:700;">Home</span></button>
-    <button class="tab" data-team="Scaling">Scaling <span class="count" id="cnt-Scaling">1</span></button>
-    <button class="tab" data-team="Marketing">Marketing (Hypercare) <span class="count" id="cnt-Marketing">5</span></button>
-    <button class="tab" data-team="Unassignment">Unassignment Tracker <span class="count" id="cnt-Unassignment">—</span></button>
-    <button class="tab" data-team="Revival">Revival <span class="count" id="cnt-Revival">3</span></button>
-    <button class="tab" data-team="Daily">Daily Report <span class="count" id="cnt-Daily">📊</span></button>
-    <button class="tab" data-team="CallHistory">Call History <span class="count" id="cnt-CallHistory">🔍</span></button>
-    <button class="tab" data-team="HITSRecovery">HITS Recovery <span class="count" id="cnt-HITSRecovery">🎯</span></button>
-    <button class="tab" data-team="Creatives">Creatives Tracker <span class="count" id="cnt-Creatives">🎨</span></button>
+    <div class="sd-brand" aria-hidden="true">
+      <span class="sd-brand-mark"><i class="ph ph-squares-four"></i></span>
+      <span class="sd-brand-text">Hypercare<small>Command Center</small></span>
+    </div>
+    <span class="sd-nav-eyebrow">Workspaces</span>
+    <button class="tab tab-home active" data-team="Home" title="Home" aria-label="Home"><i class="ph ph-house sd-navico"></i><span class="sd-navlbl">Home</span></button>
+    <button class="tab" data-team="Scaling" title="Scaling"><i class="ph ph-rocket-launch sd-navico"></i><span class="sd-navlbl">Scaling</span><span class="count" id="cnt-Scaling">1</span></button>
+    <button class="tab" data-team="Marketing" title="Marketing (Hypercare)"><i class="ph ph-megaphone sd-navico"></i><span class="sd-navlbl">Marketing</span><span class="count" id="cnt-Marketing">5</span></button>
+    <button class="tab" data-team="Unassignment" title="Unassignment Tracker"><i class="ph ph-clipboard-text sd-navico"></i><span class="sd-navlbl">Unassignment</span><span class="count" id="cnt-Unassignment">—</span></button>
+    <button class="tab" data-team="Revival" title="Revival"><i class="ph ph-sparkle sd-navico"></i><span class="sd-navlbl">Revival</span><span class="count" id="cnt-Revival">3</span></button>
+    <button class="tab" data-team="Daily" title="Daily Report"><i class="ph ph-sun-horizon sd-navico"></i><span class="sd-navlbl">Daily Report</span><span class="count" id="cnt-Daily"></span></button>
+    <button class="tab" data-team="CallHistory" title="Call History"><i class="ph ph-phone-call sd-navico"></i><span class="sd-navlbl">Call History</span><span class="count" id="cnt-CallHistory"></span></button>
+    <button class="tab" data-team="HITSRecovery" title="HITS Recovery"><i class="ph ph-target sd-navico"></i><span class="sd-navlbl">HITS Recovery</span><span class="count" id="cnt-HITSRecovery"></span></button>
+    <button class="tab" data-team="Creatives" title="Creatives Tracker"><i class="ph ph-palette sd-navico"></i><span class="sd-navlbl">Creatives</span><span class="count" id="cnt-Creatives"></span></button>
   </div>
 
   <!-- HOMEPAGE — floating tile launcher. Default-active. Clicking a tile opens its section. -->
@@ -2015,49 +2550,49 @@
     </div>
     <div class="home-grid" id="home-grid">
       <button class="home-tile" data-team="Scaling" style="--tile-glow:rgba(99,102,241,0.45);">
-        <div class="home-tile-icon">🚀</div>
+        <div class="home-tile-icon"><i class="ph ph-rocket-launch"></i></div>
         <div class="home-tile-title">Scaling</div>
         <div class="home-tile-sub">Seller view · Bucket health · Campaign track · ARR view · ARR recovery</div>
         <div class="home-tile-arrow">→</div>
       </button>
       <button class="home-tile" data-team="Marketing" style="--tile-glow:rgba(34,211,238,0.45);">
-        <div class="home-tile-icon">📣</div>
+        <div class="home-tile-icon"><i class="ph ph-megaphone"></i></div>
         <div class="home-tile-title">Marketing (Hypercare)</div>
         <div class="home-tile-sub">5 GCs · Buckets · Calls · Tasks · Campaign track · Compliance</div>
         <div class="home-tile-arrow">→</div>
       </button>
       <button class="home-tile" data-team="Unassignment" style="--tile-glow:rgba(251,191,36,0.45);">
-        <div class="home-tile-icon">📋</div>
+        <div class="home-tile-icon"><i class="ph ph-clipboard-text"></i></div>
         <div class="home-tile-title">Unassignment Tracker</div>
         <div class="home-tile-sub">Date / week filter · Bucket drilldown · Pending titles</div>
         <div class="home-tile-arrow">→</div>
       </button>
       <button class="home-tile" data-team="Revival" style="--tile-glow:rgba(248,113,113,0.45);">
-        <div class="home-tile-icon">💫</div>
+        <div class="home-tile-icon"><i class="ph ph-sparkle"></i></div>
         <div class="home-tile-title">Revival</div>
         <div class="home-tile-sub">3 GCs · Calling · Tasks · Efficiency · Revival compliance</div>
         <div class="home-tile-arrow">→</div>
       </button>
       <button class="home-tile" data-team="Daily" style="--tile-glow:rgba(52,211,153,0.45);">
-        <div class="home-tile-icon">🌅</div>
+        <div class="home-tile-icon"><i class="ph ph-sun-horizon"></i></div>
         <div class="home-tile-title">Daily Report</div>
         <div class="home-tile-sub">Morning · EOD · Consolidated · per-person drilldown</div>
         <div class="home-tile-arrow">→</div>
       </button>
       <button class="home-tile" data-team="CallHistory" style="--tile-glow:rgba(139,92,246,0.45);">
-        <div class="home-tile-icon">📞</div>
+        <div class="home-tile-icon"><i class="ph ph-phone-call"></i></div>
         <div class="home-tile-title">Call History</div>
         <div class="home-tile-sub">Seller search · Date range · Conversation context</div>
         <div class="home-tile-arrow">→</div>
       </button>
       <button class="home-tile" data-team="HITSRecovery" style="--tile-glow:rgba(192,132,252,0.45);">
-        <div class="home-tile-icon">🎯</div>
+        <div class="home-tile-icon"><i class="ph ph-target"></i></div>
         <div class="home-tile-title">HITS Recovery</div>
         <div class="home-tile-sub">3 cohorts · Bucket health · Funnel · Revive · Attention list</div>
         <div class="home-tile-arrow">→</div>
       </button>
       <button class="home-tile" data-team="Creatives" style="--tile-glow:rgba(244,114,182,0.45);">
-        <div class="home-tile-icon">🎨</div>
+        <div class="home-tile-icon"><i class="ph ph-palette"></i></div>
         <div class="home-tile-title">Creatives Tracker</div>
         <div class="home-tile-sub">Srabanika Das · Pending · Done today / 7d · Drive links</div>
         <div class="home-tile-arrow">→</div>
@@ -2191,10 +2726,9 @@
 (function () {
   try {
     const saved = localStorage.getItem('hc_theme');
-    if (saved === 'light' || saved === 'dark') {
-      document.documentElement.setAttribute('data-theme', saved);
-    }
-  } catch (e) {}
+    if (saved === 'dark') document.documentElement.removeAttribute('data-theme');
+    else document.documentElement.setAttribute('data-theme', 'light');
+  } catch (e) { document.documentElement.setAttribute('data-theme','light'); }
 })();
 function getCurrentTheme() {
   return document.documentElement.getAttribute('data-theme') === 'light' ? 'light' : 'dark';
@@ -2212,9 +2746,9 @@ function applyTheme(theme) {
 function applyChartTheme() {
   if (typeof Chart === 'undefined') return;
   const light = getCurrentTheme() === 'light';
-  Chart.defaults.color = light ? '#475569' : '#c1cad9';
-  Chart.defaults.borderColor = light ? 'rgba(15,23,42,0.06)' : 'rgba(255,255,255,0.06)';
-  Chart.defaults.font.family = "'Inter', -apple-system, sans-serif";
+  Chart.defaults.color = light ? '#6b6c78' : '#9aa2b6';
+  Chart.defaults.borderColor = light ? 'rgba(20,22,40,0.07)' : 'rgba(255,255,255,0.07)';
+  Chart.defaults.font.family = "'Outfit', -apple-system, sans-serif";
   Chart.defaults.font.weight = '500';
 }
 applyChartTheme();
@@ -4076,8 +4610,8 @@ function bootLoaderStart(total) {
   root.classList.add('show');
   const fill = bootLoaderEl('boot-bar-fill'); if (fill) fill.style.width = '0%';
   const pct  = bootLoaderEl('boot-pct');      if (pct) pct.textContent = '0%';
-  const cnt  = bootLoaderEl('boot-count');    if (cnt) cnt.textContent = `0 / ${total} sheets`;
-  const sub  = bootLoaderEl('boot-current-sheet'); if (sub) sub.textContent = 'Connecting to Google Sheets…';
+  const cnt  = bootLoaderEl('boot-count');    if (cnt) cnt.textContent = `0 / ${total}`;
+  const sub  = bootLoaderEl('boot-current-sheet'); if (sub) sub.textContent = 'Loading live data…';
   if (_BOOT.hideTimer) { clearTimeout(_BOOT.hideTimer); _BOOT.hideTimer = null; }
 }
 function bootLoaderTick(label) {
@@ -4088,28 +4622,61 @@ function bootLoaderTick(label) {
   const displayPct = Math.min(95, Math.round(ratio * 100));
   const fill = bootLoaderEl('boot-bar-fill'); if (fill) fill.style.width = displayPct + '%';
   const pct  = bootLoaderEl('boot-pct');      if (pct) pct.textContent = displayPct + '%';
-  const cnt  = bootLoaderEl('boot-count');    if (cnt) cnt.textContent = `${_BOOT.done} / ${_BOOT.total} sheets`;
+  const cnt  = bootLoaderEl('boot-count');    if (cnt) cnt.textContent = `${_BOOT.done} / ${_BOOT.total}`;
   const sub  = bootLoaderEl('boot-current-sheet');
-  if (sub && label) sub.textContent = `✓ ${label} loaded`;
+  if (sub && label) sub.textContent = `✓ ${label}`;
 }
 function bootLoaderDone() {
   const fill = bootLoaderEl('boot-bar-fill'); if (fill) fill.style.width = '100%';
   const pct  = bootLoaderEl('boot-pct');      if (pct) pct.textContent = '100%';
-  const cnt  = bootLoaderEl('boot-count');    if (cnt) cnt.textContent = `${_BOOT.total} / ${_BOOT.total} sheets`;
-  const sub  = bootLoaderEl('boot-current-sheet'); if (sub) sub.textContent = 'All set — opening your dashboard…';
+  const cnt  = bootLoaderEl('boot-count');    if (cnt) cnt.textContent = `${_BOOT.total} / ${_BOOT.total}`;
+  const sub  = bootLoaderEl('boot-current-sheet'); if (sub) sub.textContent = 'All set ✓';
   const root = bootLoaderEl('boot-loader');
-  // Hold briefly at 100% so the user sees completion, then fade out
-  _BOOT.hideTimer = setTimeout(() => {
-    if (root) root.classList.remove('show');
-    // Replay the homepage reveal animation
-    const home = document.getElementById('view-Home');
-    if (home && home.classList.contains('active')) {
-      home.classList.remove('boot-reveal');
-      // Force reflow so animation restarts
-      void home.offsetWidth;
-      home.classList.add('boot-reveal');
-    }
-  }, 520);
+  // Hold briefly at 100% so the user sees completion, then fade the pill out.
+  _BOOT.hideTimer = setTimeout(() => { if (root) root.classList.remove('show'); }, 700);
+}
+
+// ============================================================
+// ✦ V2 Metabase snapshot loader
+// Loads pre-parsed source objects from static mb/*.json — produced server-side
+// by the snapshot pipeline (Metabase card → mb/parsers.mjs → JSON). For these
+// sources the dashboard SKIPS the Google fetch + client-side parse entirely
+// (faster + no per-sheet API call). Any source missing from the snapshot falls
+// back to the live Google Sheets path, so this degrades gracefully.
+// Date objects are serialized as {"$date": epochMs}; we rehydrate on load.
+// ============================================================
+const MB_AGG_KEYS = ["calling","tasks","troubleshoot","chatReply","unassignment","dailyARR","experimental","callContext","gcv3Dump","dailyMetrics"];
+let HC_AGG = {};
+let HC_AGG_LOADED = false;
+function _reviveDates(v) {
+  if (v === null || typeof v !== "object") return v;
+  if (Array.isArray(v)) { for (let i = 0; i < v.length; i++) v[i] = _reviveDates(v[i]); return v; }
+  const keys = Object.keys(v);
+  if (keys.length === 1 && keys[0] === "$date") return new Date(v.$date);
+  for (const k of keys) v[k] = _reviveDates(v[k]);
+  return v;
+}
+async function loadAggregates() {
+  if (HC_AGG_LOADED) return HC_AGG;
+  HC_AGG_LOADED = true;
+  let manifest = null;
+  try {
+    const r = await fetch("mb/agg-manifest.json", { cache: "no-store" });
+    if (r.ok) manifest = await r.json();
+  } catch (e) {}
+  if (!manifest || !manifest.sources) return HC_AGG;
+  const keys = MB_AGG_KEYS.filter(k => manifest.sources[k] && !manifest.sources[k].error);
+  await Promise.all(keys.map(async k => {
+    try {
+      const r = await fetch(`mb/${k}.json`, { cache: "no-store" });
+      if (!r.ok) return;
+      HC_AGG[k] = _reviveDates(await r.json());
+    } catch (e) { console.warn(`[agg] ${k} load failed:`, e.message); }
+  }));
+  const got = Object.keys(HC_AGG);
+  if (got.length) console.log(`[agg] Metabase snapshot: ${got.length} sources [${got.join(", ")}]` + (manifest.generatedAt ? ` · ${manifest.generatedAt}` : ""));
+  window.HC_AGG = HC_AGG;
+  return HC_AGG;
 }
 
 async function fetchSheets() {
@@ -4125,7 +4692,12 @@ async function fetchSheets() {
   // ============================================================
   LAST_FETCH_ERRORS = [];
   setStatus("loading", "Loading…");
-  const _SHEET_COUNT = 20;  // keep in sync with the number of tryFetch() rows below
+  // Load the static Metabase snapshot first (no auth). Sources present here are
+  // served from the snapshot; the rest fall through to Google Sheets below.
+  await loadAggregates();
+  // Progress counts only sources fetched LIVE from Google — the Metabase
+  // snapshot sources (in HC_AGG) are already loaded, so they don't count.
+  const _SHEET_COUNT = 20 - Object.keys(HC_AGG).length;
   // Suppress the full-screen boot loader for BACKGROUND refreshes — only show
   // it on the very first fetch when there's no cached data on screen. This
   // makes re-opening the dashboard or tab-switching feel instant.
@@ -4145,30 +4717,37 @@ async function fetchSheets() {
   }
   // Make _showBootLoader visible to refresh() so it can decide whether to call bootLoaderDone
   fetchSheets._lastShowedLoader = _showBootLoader;
+  // For a Metabase-snapshot source, skip the Google fetch (return null → the
+  // parse step below uses HC_AGG[key] directly). Still ticks the boot loader.
+  function fetchOrAgg(key, label) {
+    // Served from the snapshot → already loaded, no fetch + not counted.
+    if (HC_AGG[key]) return Promise.resolve(null);
+    return tryFetch(key, label);
+  }
   const [
     h, c, rRaw, tRaw, tsRaw, crRaw, uRaw, rfRaw,
     ccRaw, arrRaw, exRaw, rtRaw, msRaw,
     hbmRaw, hmRaw, haRaw, haiRaw, gcRaw, dmRaw, crvRaw,
   ] = await Promise.all([
     tryFetch("hypercare",            "Hypercare Metrics"),
-    tryFetch("calling",              "Calling sheet"),
+    fetchOrAgg("calling",            "Calling sheet"),
     tryFetch("revived",              "Revived sheet"),
-    tryFetch("tasks",                "Tasks sheet"),
-    tryFetch("troubleshoot",         "Troubleshoot sheet"),
-    tryFetch("chatReply",            "Chat Reply sheet"),
-    tryFetch("unassignment",         "Unassignment sheet"),
+    fetchOrAgg("tasks",              "Tasks sheet"),
+    fetchOrAgg("troubleshoot",       "Troubleshoot sheet"),
+    fetchOrAgg("chatReply",          "Chat Reply sheet"),
+    fetchOrAgg("unassignment",       "Unassignment sheet"),
     tryFetch("remainingFunds",       "Remaining Funds sheet"),
-    tryFetch("callContext",          "Call Context sheet"),
-    tryFetch("dailyARR",             "Daily ARR sheet"),
-    tryFetch("experimental",         "Experimental Sellers sheet"),
+    fetchOrAgg("callContext",        "Call Context sheet"),
+    fetchOrAgg("dailyARR",           "Daily ARR sheet"),
+    fetchOrAgg("experimental",       "Experimental Sellers sheet"),
     tryFetch("revivalTrack",         "Revival Track sheet"),
     tryFetch("mspRecovery",          "MSP Recovery sheet"),
     tryFetch("hitsBeforeMarchCohort","HITS Before March Cohort sheet"),
     tryFetch("hitsMarchCohort",      "HITS March Cohort sheet"),
     tryFetch("hitsAprilCohort",      "HITS April Cohort sheet"),
     tryFetch("hitsAprilInactiveCohort","HITS April Inactive Cohort sheet"),
-    tryFetch("gcv3Dump",             "GCV3 Dump sheet"),
-    tryFetch("dailyMetrics",         "Daily Metrics sheet"),
+    fetchOrAgg("gcv3Dump",           "GCV3 Dump sheet"),
+    fetchOrAgg("dailyMetrics",       "Daily Metrics sheet"),
     (async () => {
       // Special path: auto-detect the correct tab name if "Tracker" doesn't work.
       try {
@@ -4209,21 +4788,21 @@ async function fetchSheets() {
 
   const revived = safeParse("Revived", rRaw, processRevivedCSV,
     { rows: [], lifetime: 0, weekList: [], earliest: null, latest: null, headers: [] });
-  const tasks = safeParse("Tasks", tRaw, processTasksCSV,
+  const tasks = HC_AGG.tasks || safeParse("Tasks", tRaw, processTasksCSV,
     { rows: [], count: 0 });
-  const troubleshoot = safeParse("Troubleshoot", tsRaw, processTroubleshootCSV,
+  const troubleshoot = HC_AGG.troubleshoot || safeParse("Troubleshoot", tsRaw, processTroubleshootCSV,
     { rows: [], count: 0 });
-  const chatReply = safeParse("Chat Reply", crRaw, processChatReplyCSV,
+  const chatReply = HC_AGG.chatReply || safeParse("Chat Reply", crRaw, processChatReplyCSV,
     { bySeller: {}, count: 0 });
-  const unassignment = safeParse("Unassignment", uRaw, processUnassignmentCSV,
+  const unassignment = HC_AGG.unassignment || safeParse("Unassignment", uRaw, processUnassignmentCSV,
     { rows: [], count: 0 });
   const remainingFunds = safeParse("Remaining Funds", rfRaw, processRemainingFundsCSV,
     { bySeller: {}, count: 0 });
-  const callContext = safeParse("Call Context", ccRaw, processCallContextCSV,
+  const callContext = HC_AGG.callContext || safeParse("Call Context", ccRaw, processCallContextCSV,
     { rows: [], count: 0 });
-  const dailyARR = safeParse("Daily ARR", arrRaw, processDailyARRCSV,
+  const dailyARR = HC_AGG.dailyARR || safeParse("Daily ARR", arrRaw, processDailyARRCSV,
     { bySeller: {}, count: 0 });
-  const experimental = safeParse("Experimental", exRaw, processExperimentalCSV,
+  const experimental = HC_AGG.experimental || safeParse("Experimental", exRaw, processExperimentalCSV,
     { sellerIds: [], count: 0 });
   const revivalTrack = safeParse("Revival Track", rtRaw, processRevivalTrackCSV,
     { rows: [], count: 0 });
@@ -4243,9 +4822,9 @@ async function fetchSheets() {
   const hitsAprilInactiveCohort = safeParse("HITS April Inactive Cohort", haiRaw,
     (text) => processHITSCohortCSV(text, { idOnly: true }),
     { bySeller: {}, sellerIds: [], count: 0 });
-  const gcv3Dump = safeParse("GCV3 Dump", gcRaw, processGCV3DumpCSV,
+  const gcv3Dump = HC_AGG.gcv3Dump || safeParse("GCV3 Dump", gcRaw, processGCV3DumpCSV,
     { bySeller: {}, count: 0 });
-  const dailyMetrics = safeParse("Daily Metrics", dmRaw, processDailyMetricsCSV,
+  const dailyMetrics = HC_AGG.dailyMetrics || safeParse("Daily Metrics", dmRaw, processDailyMetricsCSV,
     { bySeller: {}, count: 0 });
   const creatives = safeParse("Creatives Tracker", crvRaw, processCreativesCSV,
     { rows: [], count: 0, pending: 0, completed: 0 });
@@ -4257,7 +4836,9 @@ async function fetchSheets() {
   }
   const hyp = processHypercareCSV(h);
   let calls;
-  if (c) {
+  if (HC_AGG.calling) {
+    calls = HC_AGG.calling;
+  } else if (c) {
     try { calls = processCallingCSV(c); }
     catch (e) {
       console.warn("Calling CSV parse failed (non-fatal):", e.message);
@@ -9405,6 +9986,8 @@ function activateTeam(team) {
   if (tabBtn) tabBtn.classList.add("active");
   const view = document.getElementById(`view-${team}`);
   if (view) view.classList.add("active");
+  // The bucket-rules legend is only relevant to the data views — hide it on Home.
+  document.querySelectorAll(".footer-note").forEach(el => { el.style.display = (team === "Home") ? "none" : ""; });
   // Smooth-scroll to top whenever the workspace switches
   window.scrollTo({ top: 0, behavior: "smooth" });
   if (team === "Daily") renderDailyReport();
@@ -9419,6 +10002,8 @@ document.querySelectorAll(".tabs .tab").forEach(btn => {
 document.querySelectorAll("#home-grid .home-tile").forEach(tile => {
   tile.addEventListener("click", () => activateTeam(tile.dataset.team));
 });
+// Home is the default active view on load → hide the data-only bucket-rules legend.
+document.querySelectorAll(".footer-note").forEach(el => { el.style.display = "none"; });
 document.querySelectorAll('#mkt-subtabs .subtab').forEach(btn => btn.addEventListener('click', () => {
   document.querySelectorAll('#mkt-subtabs .subtab').forEach(b => b.classList.remove('active'));
   document.querySelectorAll('#view-Marketing .subview').forEach(v => v.classList.remove('active'));
@@ -9591,6 +10176,36 @@ _bootOAuth();
 document.addEventListener("visibilitychange", () => {
   if (!document.hidden && !OAUTH_ACCESS_TOKEN && _isClientIdConfigured()) showSignInOverlay();
 });
+
+// ============================================================
+// ✦ V2 SHELL — liquid "sliding" active indicator for the glass rail.
+// A single lozenge glides behind whichever .tab is active, with a spring
+// ease. Pure enhancement — does nothing to the data/render logic.
+// ============================================================
+(function v2NavIndicator(){
+  const rail = document.getElementById('top-tabs');
+  if (!rail) return;
+  const ind = document.createElement('div');
+  ind.className = 'nav-indicator';
+  rail.appendChild(ind);
+  function place(){
+    const active = rail.querySelector('.tab.active');
+    if (!active || window.matchMedia('(max-width:1024px)').matches){ ind.style.opacity = '0'; return; }
+    const rb = rail.getBoundingClientRect();
+    const ab = active.getBoundingClientRect();
+    ind.style.height = ab.height + 'px';
+    ind.style.transform = 'translateY(' + (ab.top - rb.top) + 'px)';
+    ind.style.opacity = '1';
+  }
+  // Reposition when the active tab changes (class mutations), on resize, on load.
+  const mo = new MutationObserver(() => requestAnimationFrame(place));
+  rail.querySelectorAll('.tab').forEach(t => mo.observe(t, { attributes:true, attributeFilter:['class'] }));
+  rail.addEventListener('click', () => requestAnimationFrame(place));
+  window.addEventListener('resize', place, { passive:true });
+  // initial — wait a frame so layout/fonts settle
+  requestAnimationFrame(() => requestAnimationFrame(place));
+  setTimeout(place, 300);
+})();
 </script>
 </body>
 </html>

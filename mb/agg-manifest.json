@@ -1,0 +1,17 @@
+{
+  "generatedAt": "2026-06-20T16:21:17.063Z",
+  "sources": {
+    "calling": {
+      "bytes": 19506883
+    },
+    "tasks": {
+      "bytes": 5369675
+    },
+    "troubleshoot": {
+      "bytes": 4459503
+    },
+    "gcv3Dump": {
+      "bytes": 7069532
+    }
+  }
+}
