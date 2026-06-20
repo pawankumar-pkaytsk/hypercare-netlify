@@ -2423,7 +2423,7 @@ const SHEETS_FAILED_PLACEHOLDER = /^FILL_IN_/;
 // Bumped on every push so the UI can show which build the user is actually
 // running. If this string doesn't match the latest deploy, the browser is
 // serving a cached/older version.
-const BUILD_VERSION = "2026-06-18T23:30:00 · universal CSV export on every table";
+const BUILD_VERSION = "2026-06-18T23:59:00 · fast restore (3h session) + silent loader on bg refresh";
 // Optional convenience: persist file IDs to localStorage so you don't have to
 // edit the file every redeploy. If a value is set in localStorage it takes
 // precedence over the hard-coded one above. See window.hcSetSheetId() helper.
@@ -2475,8 +2475,13 @@ const REV_OWNER_PATTERNS = {
   "Debasish Das":    ["debasish", "debashish"],
 };
 const REFRESH_MS = 60 * 60 * 1000;
-const STALE_ON_FOCUS_MS = 5 * 60 * 1000;
+const STALE_ON_FOCUS_MS = 15 * 60 * 1000;  // 15 min — bg refresh on focus only if older
 const CACHE_KEY = "hypercare_v16";
+// localStorage key to remember the user once consented + recent enough that
+// a silent token request will succeed without showing the Sign-in overlay.
+// Set to 3h (Google access tokens are 1h but consent lasts much longer).
+const SESSION_KEY = "hypercare_session_v1";
+const SESSION_TTL_MS = 3 * 60 * 60 * 1000;
 const TS_SPEND_THRESHOLD = 3540;
 const TS_DAYS_THRESHOLD = 7;
 const SPEND_THRESHOLD = 3540;
@@ -3873,10 +3878,53 @@ async function _handleTokenResponse(resp) {
   OAUTH_TOKEN_EXPIRES_AT = Date.now() + ((resp.expires_in || 3600) * 1000);
   _scheduleTokenRefresh(resp.expires_in || 3600);
   try { await _fetchUserInfo(); } catch (e) { /* keep going even if userinfo fails */ }
+  // Persist a "session marker" so next page load can attempt silent re-auth
+  // without showing the sign-in overlay (TTL = SESSION_TTL_MS).
+  try {
+    localStorage.setItem(SESSION_KEY, JSON.stringify({
+      ts: Date.now(),
+      email: OAUTH_USER_EMAIL || null,
+      picture: OAUTH_USER_PICTURE || null,
+    }));
+  } catch (e) {}
   updateAuthUI();
   hideSignInOverlay();
   // Now load data
   refresh();
+}
+
+// Try a silent token request on page boot — succeeds without UI if the user
+// has consented to this app in this browser recently. If it fails, we fall
+// back to showing the Sign-in overlay.
+function _trySilentSignIn() {
+  return new Promise((resolve) => {
+    if (!OAUTH_TOKEN_CLIENT) { resolve(false); return; }
+    let settled = false;
+    const done = (ok) => { if (settled) return; settled = true; resolve(ok); };
+    // Watchdog: if Google never calls back within 4s, give up
+    const watchdog = setTimeout(() => done(false), 4000);
+    const origCb = OAUTH_TOKEN_CLIENT.callback;
+    OAUTH_TOKEN_CLIENT.callback = (resp) => {
+      OAUTH_TOKEN_CLIENT.callback = origCb;
+      clearTimeout(watchdog);
+      if (resp && resp.access_token) {
+        // Hand off to the standard handler so all the side-effects run
+        _handleTokenResponse(resp);
+        done(true);
+      } else {
+        done(false);
+      }
+    };
+    try {
+      // prompt:"" = silent (uses existing consent, no popup). Note: if consent
+      // is missing or expired, Google fires error_callback or returns no token.
+      OAUTH_TOKEN_CLIENT.requestAccessToken({ prompt: "" });
+    } catch (e) {
+      OAUTH_TOKEN_CLIENT.callback = origCb;
+      clearTimeout(watchdog);
+      done(false);
+    }
+  });
 }
 function _scheduleTokenRefresh(expiresInSec) {
   if (OAUTH_REFRESH_TIMER) clearTimeout(OAUTH_REFRESH_TIMER);
@@ -3937,9 +3985,10 @@ function signOut() {
   OAUTH_USER_PICTURE = null;
   if (OAUTH_REFRESH_TIMER) clearTimeout(OAUTH_REFRESH_TIMER);
   OAUTH_REFRESH_TIMER = null;
-  // Clear cached data
+  // Clear cached data + session marker so next load shows the Sign-in overlay
   DATA = null; REVIVAL = null; CACHED_PAYLOAD = null;
   try { localStorage.removeItem(CACHE_KEY); } catch (e) {}
+  try { localStorage.removeItem(SESSION_KEY); } catch (e) {}
   updateAuthUI();
   showSignInOverlay();
 }
@@ -4077,19 +4126,25 @@ async function fetchSheets() {
   LAST_FETCH_ERRORS = [];
   setStatus("loading", "Loading…");
   const _SHEET_COUNT = 20;  // keep in sync with the number of tryFetch() rows below
-  bootLoaderStart(_SHEET_COUNT);
+  // Suppress the full-screen boot loader for BACKGROUND refreshes — only show
+  // it on the very first fetch when there's no cached data on screen. This
+  // makes re-opening the dashboard or tab-switching feel instant.
+  const _showBootLoader = !DATA && !CACHED_PAYLOAD;
+  if (_showBootLoader) bootLoaderStart(_SHEET_COUNT);
   async function tryFetch(key, label) {
     try {
       const out = await fetchOne(label, SHEETS[key]);
-      bootLoaderTick(label);
+      if (_showBootLoader) bootLoaderTick(label);
       return out;
     } catch (e) {
       console.warn(`${label} failed (non-fatal):`, e.message);
       LAST_FETCH_ERRORS.push({ key, label, error: e.message, fileId: SHEETS[key] && SHEETS[key].fileId });
-      bootLoaderTick(label);  // still bump so the bar reaches the same total
+      if (_showBootLoader) bootLoaderTick(label);  // still bump so the bar reaches the same total
       return null;
     }
   }
+  // Make _showBootLoader visible to refresh() so it can decide whether to call bootLoaderDone
+  fetchSheets._lastShowedLoader = _showBootLoader;
   const [
     h, c, rRaw, tRaw, tsRaw, crRaw, uRaw, rfRaw,
     ccRaw, arrRaw, exRaw, rtRaw, msRaw,
@@ -4118,12 +4173,12 @@ async function fetchSheets() {
       // Special path: auto-detect the correct tab name if "Tracker" doesn't work.
       try {
         const out = await fetchOneAutoTab("creatives", "Creatives Tracker sheet", "tracker");
-        bootLoaderTick("Creatives Tracker sheet");
+        if (_showBootLoader) bootLoaderTick("Creatives Tracker sheet");
         return out;
       } catch (e) {
         console.warn("Creatives Tracker sheet failed (non-fatal):", e.message);
         LAST_FETCH_ERRORS.push({ key: "creatives", label: "Creatives Tracker sheet", error: e.message, fileId: SHEETS.creatives.fileId });
-        bootLoaderTick("Creatives Tracker sheet");
+        if (_showBootLoader) bootLoaderTick("Creatives Tracker sheet");
         return null;
       }
     })(),
@@ -4256,15 +4311,16 @@ async function refresh() {
       setStatus("ok", "Live");
     }
     // Hand off to the boot loader: it'll fill to 100% and fade the overlay out,
-    // revealing the homepage tiles underneath.
-    bootLoaderDone();
+    // revealing the homepage tiles underneath. Only relevant if we actually
+    // showed the loader (skipped during background refreshes).
+    if (fetchSheets._lastShowedLoader) bootLoaderDone();
   } catch (e) {
     console.error(e); META.error = e.message || String(e);
     setStatus("error", "Error: " + META.error);
     // Even on a hard failure, render the diagnostic banner so the user sees
     // exactly which sheet failed and how to fix it.
     renderFetchErrorsBanner();
-    bootLoaderDone();  // hide overlay even on failure so the error UI is visible
+    if (fetchSheets._lastShowedLoader) bootLoaderDone();
   }
   META.fetching = false;
   updateMetaBar();
@@ -9483,9 +9539,14 @@ if (cached && cached.payload && cached.payload.mkt && cached.payload.revival) {
 }
 
 // Boot OAuth flow: wait for the GIS script to load, then initialize.
-function _bootOAuth() {
+// FAST-RESTORE FLOW:
+//   1. If a recent session marker exists in localStorage (signed in within
+//      SESSION_TTL_MS), try a silent token request — succeeds without UI if
+//      the user previously consented and the browser still has the consent.
+//   2. If silent succeeds → no overlay, just proceed with cached data + bg refresh.
+//   3. If silent fails OR no recent session → show the Sign-in overlay.
+async function _bootOAuth() {
   if (!_gisLoaded()) {
-    // GIS not yet loaded — retry in 100ms (poller is light, capped to ~15s)
     if (window._gisPollCount === undefined) window._gisPollCount = 0;
     if (window._gisPollCount++ < 150) return setTimeout(_bootOAuth, 100);
     showSetupNeeded();
@@ -9495,7 +9556,34 @@ function _bootOAuth() {
   }
   if (!_isClientIdConfigured()) { showSetupNeeded(); return; }
   gisInit();
-  // No saved session — show overlay until the user signs in
+
+  // Check if we have a recent session marker → attempt silent sign-in
+  let recentSession = false;
+  try {
+    const raw = localStorage.getItem(SESSION_KEY);
+    if (raw) {
+      const sess = JSON.parse(raw);
+      if (sess && sess.ts && (Date.now() - sess.ts < SESSION_TTL_MS)) {
+        recentSession = true;
+        // Pre-populate display info so the user pill / cached data render immediately
+        if (sess.email)   OAUTH_USER_EMAIL = sess.email;
+        if (sess.picture) OAUTH_USER_PICTURE = sess.picture;
+        updateAuthUI();
+      }
+    }
+  } catch (e) {}
+
+  if (recentSession) {
+    setStatus("loading", "Restoring session…");
+    const ok = await _trySilentSignIn();
+    if (ok) {
+      // _handleTokenResponse already called refresh() — we're done
+      return;
+    }
+    // Silent failed (consent lapsed / different browser context) → fall through
+    setStatus("idle", "Sign in to refresh");
+  }
+  // No (or expired) session → show the overlay
   if (!OAUTH_ACCESS_TOKEN) showSignInOverlay();
 }
 _bootOAuth();
