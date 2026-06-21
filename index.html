@@ -6291,12 +6291,35 @@ let hitsView   = "overview"; // "overview" | "bucket" | "potential" | "objective
 
 function _hitsCohortData() {
   const p = (typeof CACHED_PAYLOAD !== 'undefined' && CACHED_PAYLOAD) ? CACHED_PAYLOAD : null;
+  if (hitsCohort === "hypercare_pipeline") return _buildHypercarePipelineCohort();
   if (!p) return null;
   if (hitsCohort === "before_march") return p.hitsBeforeMarchCohort;
   if (hitsCohort === "march")        return p.hitsMarchCohort;
   if (hitsCohort === "april")        return p.hitsAprilCohort;
   if (hitsCohort === "april_inactive") return p.hitsAprilInactiveCohort;
   return null;
+}
+// Synthetic, LIVE cohort: every seller currently assigned in Hypercare (Marketing)
+// — i.e. DATA.sellers (GC ∈ Marketing GCs · GM = Pawan Kumar · active 45d). Rebuilt
+// from the latest Hypercare Inputs on every refresh, so it auto-updates. Shaped like
+// an ID-only cohort; buildHITSSellerRows()/_enrichSellerFromOtherSheets() fill the rest.
+function _buildHypercarePipelineCohort() {
+  const sellers = (typeof DATA !== 'undefined' && DATA && DATA.sellers) ? DATA.sellers : null;
+  if (!sellers) return null;   // not loaded yet → show the loading state
+  const bySeller = {}, sellerIds = [];
+  sellers.forEach(s => {
+    if (!s || !s.seller_id || bySeller[s.seller_id]) return;
+    sellerIds.push(s.seller_id);
+    bySeller[s.seller_id] = {
+      seller_id: s.seller_id,
+      seller_name: s.seller_name || "",
+      gc: s.gc_display || s.crm_gc || "",
+      gm: s.crm_gm || "",
+      status: "",
+      last_spend_date: s.last_spend_date || "",
+    };
+  });
+  return { bySeller, sellerIds, count: sellerIds.length };
 }
 function _hitsPNLData() {
   const p = (typeof CACHED_PAYLOAD !== 'undefined' && CACHED_PAYLOAD) ? CACHED_PAYLOAD : null;
@@ -7102,6 +7125,8 @@ function renderHITSRecovery() {
         <div style="display:flex;align-items:center;gap:10px;">
           <label class="dr-picker-label">Cohort</label>
           <select id="hits-cohort" class="dr-select" style="min-width:240px;">
+            <option value="hypercare_pipeline"${hitsCohort==='hypercare_pipeline'?' selected':''}>Hypercare HITS Pipeline (live)</option>
+            <option value="" disabled>──────────</option>
             <option value="before_march"${hitsCohort==='before_march'?' selected':''}>Before March 2026 Golive cohort</option>
             <option value="march"${hitsCohort==='march'?' selected':''}>March 2026 Golive cohort</option>
             <option value="april"${hitsCohort==='april'?' selected':''}>April 2026 Golive cohort</option>
