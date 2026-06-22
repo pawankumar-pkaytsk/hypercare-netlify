@@ -2445,6 +2445,78 @@
     #top-tabs .tab .count{ display:none !important; }
     #top-tabs .sd-nav-eyebrow{ display:none !important; }
   }
+
+  /* ============================================================
+     ✦ V2 MOBILE — make every view phone-friendly. Targets the shared
+     structural classes (rail, header, grids, subtabs, tables, modals)
+     so all workspaces benefit at once.
+     ============================================================ */
+  @media (max-width:768px){
+    .wrap{ padding:12px 12px 40px !important; }
+
+    /* nav rail → single-row horizontal scroller, brand pinned at the left */
+    #top-tabs.tabs{
+      flex-wrap:nowrap !important; overflow-x:auto !important; overflow-y:hidden !important;
+      align-items:center !important; gap:4px !important; top:8px !important;
+      padding:7px 9px !important; border-radius:16px !important;
+      -webkit-overflow-scrolling:touch; scrollbar-width:none;
+    }
+    #top-tabs.tabs::-webkit-scrollbar{ display:none !important; }
+    #top-tabs .sd-brand{ width:auto !important; flex:0 0 auto !important; margin:0 4px 0 0 !important; padding:2px 8px 2px 2px !important; border-bottom:none !important; border-right:1px solid var(--glass-line) !important; }
+    #top-tabs .sd-brand-text{ display:none !important; }
+    #top-tabs .tab{ width:44px !important; height:44px !important; min-width:44px !important; padding:0 !important; justify-content:center !important; flex:0 0 auto !important; }
+    #top-tabs .tab .sd-navico{ font-size:20px !important; }
+    .nav-indicator{ display:none !important; }
+
+    /* header: title stacked above the controls */
+    header.top{ flex-direction:column !important; align-items:flex-start !important; gap:10px !important; padding:2px 0 12px !important; }
+    .title::after{ font-size:10px !important; letter-spacing:.18em !important; margin-bottom:5px !important; }
+    h1{ font-size:23px !important; }
+    .subtitle{ font-size:12px !important; }
+    .meta-bar{ width:100% !important; gap:8px !important; flex-wrap:wrap !important; }
+
+    /* grids → single column; tighter cards */
+    .quad-grid, .sl-grid{ grid-template-columns:1fr !important; gap:12px !important; }
+    #home-grid{ grid-template-columns:1fr !important; gap:14px !important; }
+    #home-grid .home-tile, #home-grid .home-tile:first-child{ min-height:0 !important; padding:18px 18px 50px !important; }
+    .card, .crv-card, .camp-mini-card, .dr-card{ padding:16px !important; }
+    .quad-card, .sl-card{ padding:16px !important; }
+    .quad-value{ font-size:22px !important; }
+    .card h3{ font-size:15px !important; }
+
+    /* subtabs (incl. ARR/HITS sub-rows) → horizontal swipe, no row pile-up */
+    .subtabs{ flex-wrap:nowrap !important; overflow-x:auto !important; -webkit-overflow-scrolling:touch; scrollbar-width:none; padding:5px !important; }
+    .subtabs::-webkit-scrollbar{ display:none !important; }
+    .subtab{ flex:0 0 auto !important; padding:8px 13px !important; font-size:12px !important; white-space:nowrap !important; }
+
+    /* filter chips */
+    .filter-bar{ padding:10px 12px !important; gap:6px !important; }
+    .chip{ padding:5px 11px !important; font-size:12px !important; }
+
+    /* tables keep scrolling inside their wrap; tighten so more fits */
+    .tbl-wrap{ max-height:none !important; }
+    table.t{ font-size:11.5px !important; }
+    table.t th, table.t td{ padding:8px 9px !important; }
+    table.t th{ font-size:9.5px !important; letter-spacing:.05em !important; }
+
+    /* daily-report / cohort controls stack with full-width selects */
+    .dr-controls{ flex-direction:column !important; align-items:stretch !important; gap:8px !important; }
+    .dr-select, #hits-cohort{ width:100% !important; min-width:0 !important; }
+
+    /* drilldown modal → fullscreen sheet */
+    .drill-panel{ width:100vw !important; max-width:100vw !important; height:100% !important; max-height:100dvh !important; border-radius:0 !important; }
+    .drill-header{ padding:12px 14px !important; }
+    .drill-body{ padding:14px !important; }
+
+    /* loading pill compact, doesn't dominate the small header */
+    .hc-mini-loader{ top:8px !important; right:8px !important; left:auto !important; min-width:0 !important; max-width:72vw !important; padding:8px 11px !important; }
+  }
+  @media (max-width:480px){
+    h1{ font-size:20px !important; }
+    .quad-value{ font-size:20px !important; }
+    table.t th, table.t td{ padding:7px 7px !important; }
+    #top-tabs .tab{ width:42px !important; height:42px !important; min-width:42px !important; }
+  }
 </style>
 </head>
 <body>
