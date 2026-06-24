@@ -2517,6 +2517,32 @@
     table.t th, table.t td{ padding:7px 7px !important; }
     #top-tabs .tab{ width:42px !important; height:42px !important; min-width:42px !important; }
   }
+
+  /* ---- Creatives Report: people subtabs + EOD metric cards ---- */
+  .crv-people{ align-items:center !important; }
+  .crv-grp-label{
+    flex:0 0 auto; padding:0 8px 0 4px; font-size:10px; font-weight:800;
+    letter-spacing:.1em; text-transform:uppercase; color:var(--text-faint);
+    border-left:2px solid var(--glass-line); margin-left:4px;
+  }
+  .crv-people .crv-grp-label:first-child{ border-left:none; margin-left:0; }
+  .crv-metric-grid{
+    display:grid; grid-template-columns:repeat(auto-fit, minmax(155px, 1fr));
+    gap:12px; margin-bottom:16px;
+  }
+  .crv-metric{
+    position:relative; padding:15px 16px; border-radius:16px; overflow:hidden;
+    background:var(--glass); border:1px solid var(--glass-line);
+    -webkit-backdrop-filter:blur(18px) saturate(150%); backdrop-filter:blur(18px) saturate(150%);
+    box-shadow:0 12px 30px -20px rgba(0,0,0,.5), inset 0 1px 0 var(--glass-hi);
+  }
+  .crv-metric::before{ content:""; position:absolute; left:0; top:0; bottom:0; width:3px; background:var(--m, var(--brand)); opacity:.9; }
+  .crv-metric-label{ font-size:11.5px; font-weight:600; color:var(--text-soft); margin-bottom:6px; }
+  .crv-metric-value{ font-family:"Sora","Inter",sans-serif; font-size:27px; font-weight:800; line-height:1; color:var(--text); }
+  .crv-metric-sub{ font-size:10.5px; color:var(--text-faint); margin-top:5px; font-weight:600; }
+  .crv-diag{ margin-top:8px; font-size:11px; color:var(--text-soft); line-height:1.55; }
+  .crv-diag code{ font-size:10.5px; }
+  @media (max-width:768px){ .crv-metric-grid{ grid-template-columns:repeat(2,1fr) !important; gap:10px !important; } .crv-metric-value{ font-size:23px !important; } }
 </style>
 </head>
 <body>
@@ -2610,7 +2636,7 @@
     <button class="tab" data-team="Daily" title="Daily Report"><i class="ph ph-sun-horizon sd-navico"></i><span class="sd-navlbl">Daily Report</span><span class="count" id="cnt-Daily"></span></button>
     <button class="tab" data-team="CallHistory" title="Call History"><i class="ph ph-phone-call sd-navico"></i><span class="sd-navlbl">Call History</span><span class="count" id="cnt-CallHistory"></span></button>
     <button class="tab" data-team="HITSRecovery" title="HITS Recovery"><i class="ph ph-target sd-navico"></i><span class="sd-navlbl">HITS Recovery</span><span class="count" id="cnt-HITSRecovery"></span></button>
-    <button class="tab" data-team="Creatives" title="Creatives Tracker"><i class="ph ph-palette sd-navico"></i><span class="sd-navlbl">Creatives</span><span class="count" id="cnt-Creatives"></span></button>
+    <button class="tab" data-team="Creatives" title="Creatives Report"><i class="ph ph-palette sd-navico"></i><span class="sd-navlbl">Creatives Report</span><span class="count" id="cnt-Creatives"></span></button>
   </div>
 
   <!-- HOMEPAGE — floating tile launcher. Default-active. Clicking a tile opens its section. -->
@@ -2665,8 +2691,8 @@
       </button>
       <button class="home-tile" data-team="Creatives" style="--tile-glow:rgba(244,114,182,0.45);">
         <div class="home-tile-icon"><i class="ph ph-palette"></i></div>
-        <div class="home-tile-title">Creatives Tracker</div>
-        <div class="home-tile-sub">Srabanika Das · Pending · Done today / 7d · Drive links</div>
+        <div class="home-tile-title">Creatives Report</div>
+        <div class="home-tile-sub">Srabanika · Abhinav · Aditya · Campaign Team · EOD came/done/pending</div>
         <div class="home-tile-arrow">→</div>
       </button>
     </div>
@@ -3006,7 +3032,9 @@ const SHEETS = {
   hitsAprilInactiveCohort: { fileId: "1pvQ4ewHIta4iqn3GCRFgGIQsKPLURaoY3mtShsm_7ms", tab: "Pawan-April-Inactive" },
   gcv3Dump:       { fileId: "1ayKSKlZa6J3ueFqco4XOnqog9X1VcA9fKm7D5wfRqf8",  tab: "Auto_Dump" },
   dailyMetrics:   { fileId: "19W3KsIIWgp2Aw5h4DzXPMYpAYFrJ7FHA2zNC8ppb1E0",  tab: "MetricsTrack" },
-  creatives:      { fileId: "1C356r1ZDhsyvlubTpxms949g03gKGsWjMEx0DD7GtPk",  tab: "Tracker" },
+  creatives:      { fileId: "1C356r1ZDhsyvlubTpxms949g03gKGsWjMEx0DD7GtPk",  tab: "Tracker" },  // Srabanika Das
+  creativesAbhinav: { fileId: "1lLVzc1xzwKXeKfV8pmeU1ULOYeg_EpgnHHA-OoITMIw", tab: "Tracker" }, // Abhinav Rana
+  creativesTeam:  { fileId: "1uG4u-Ac75g7C-TL1aQ-MYHcCp9Ty3b4X4k67r4zGoZA",  tab: "Tracker" },  // Aditya + Campaign Team (split by person column)
 };
 // Healthy thresholds for actionable diagnosis — used by HITS Recovery views.
 // User-supplied (Jun 2026): Spend/GMV ≤ 15, RTO ≤ 25, COGS ≤ 35.
@@ -3860,9 +3888,30 @@ function processCreativesCSV(text) {
     }
     return fallback;
   }
+  // Priority finder: tries each needle (most-specific first) across ALL headers,
+  // so a specific "Designer" column wins over a generic "name" column.
+  function findColPriority(needles, fallback) {
+    for (const n of needles) {
+      for (let i = 0; i < headers.length; i++) {
+        const h = String(headers[i] || "").toLowerCase().trim();
+        if (h === n || h.includes(n)) return i;
+      }
+    }
+    return fallback;
+  }
   const dateCol   = findCol(["timestamp", "date"], 0);
   const statusCol = findCol(["status"], 9);
   const driveCol  = findCol(["drive link", "final drive link", "drive"], 10);
+  // Person/assignee column — used to split a shared Tracker (Aditya + Campaign
+  // Team) into per-person reports. -1 = none (single-person sheet).
+  const personCol = findColPriority(
+    ["designer", "assignee", "assigned to", "creative by", "created by",
+     "requested to", "team member", "owner", "person", "executive", "name"], -1);
+  // Optional explicit completion-date column → makes "done in last Nd / month /
+  // cycle" accurate. Falls back to the request timestamp when absent.
+  const doneCol = findColPriority(
+    ["completion date", "completed date", "completed on", "date completed",
+     "done date", "delivered date", "delivery date", "final date"], -1);
 
   // Parse a DD/MM/YYYY (or DD/MM/YY) timestamp, optionally with HH:MM:SS.
   // Falls back to native Date parsing for ISO etc.
@@ -3896,11 +3945,19 @@ function processCreativesCSV(text) {
                  : /pending|wip|in[-\s]?progress|todo|to[-\s]?do/i.test(statusRaw) ? "Pending"
                  : (norm(r[statusCol]) || "—");
     const driveLink = norm(r[driveCol] || "");
+    const person = personCol >= 0 ? norm(r[personCol] || "") : "";
+    const doneStr = doneCol >= 0 ? norm(r[doneCol] || "") : "";
+    const dDone = doneStr ? parseCreativeDate(doneStr) : null;
+    // Completion day for "done" windows: explicit completion col if present,
+    // else fall back to the request timestamp (same as the original behaviour).
+    const done_iso = dDone ? localISODate(dDone) : dateIso;
     out.push({
       row_index: i + 1,
       date_str: dateStr,
       date_iso: dateIso,
       ts: d ? d.getTime() : null,
+      person,
+      done_iso,
       status,
       status_raw: norm(r[statusCol]),
       drive_link: driveLink,
@@ -3917,6 +3974,10 @@ function processCreativesCSV(text) {
   // Distinct status values seen — helps debug regex misses
   const statusTally = {};
   out.forEach(r => { const k = r.status || "(empty)"; statusTally[k] = (statusTally[k] || 0) + 1; });
+  // Distinct person/assignee values seen — surfaced in the UI so the per-person
+  // name matching can be verified/fixed against what's actually in the sheet.
+  const personTally = {};
+  if (personCol >= 0) out.forEach(r => { if (r.person) personTally[r.person] = (personTally[r.person] || 0) + 1; });
   // Dump the first 3 parsed rows as a compact preview
   const preview = out.slice(0, 3).map(r => ({
     row: r.row_index, date_str: r.date_str, date_iso: r.date_iso,
@@ -3928,8 +3989,8 @@ function processCreativesCSV(text) {
   console.log(`[CreativesTracker] status tally:`, statusTally);
   console.log(`[CreativesTracker] first 3 parsed rows:`, preview);
   return { rows: out, headers, count: out.length, pending, completed,
-           _colMap: { dateCol, statusCol, driveCol }, _statusTally: statusTally,
-           _parseDiag };
+           _colMap: { dateCol, statusCol, driveCol, personCol, doneCol },
+           _statusTally: statusTally, _personTally: personTally, _parseDiag };
 }
 
 function processMSPRecoveryCSV(text) {
@@ -4769,7 +4830,7 @@ async function fetchSheets() {
   await loadAggregates();
   // Progress counts only sources fetched LIVE from Google — the Metabase
   // snapshot sources (in HC_AGG) are already loaded, so they don't count.
-  const _SHEET_COUNT = 20 - Object.keys(HC_AGG).length;
+  const _SHEET_COUNT = 22 - Object.keys(HC_AGG).length;
   // Suppress the full-screen boot loader for BACKGROUND refreshes — only show
   // it on the very first fetch when there's no cached data on screen. This
   // makes re-opening the dashboard or tab-switching feel instant.
@@ -4796,10 +4857,23 @@ async function fetchSheets() {
     if (HC_AGG[key]) return Promise.resolve(null);
     return tryFetch(key, label);
   }
+  // Creatives Tracker sheets — auto-detect the tab if "Tracker" isn't found.
+  async function crvFetch(key, label) {
+    try {
+      const out = await fetchOneAutoTab(key, label, "tracker");
+      if (_showBootLoader) bootLoaderTick(label);
+      return out;
+    } catch (e) {
+      console.warn(`${label} failed (non-fatal):`, e.message);
+      LAST_FETCH_ERRORS.push({ key, label, error: e.message, fileId: SHEETS[key] && SHEETS[key].fileId });
+      if (_showBootLoader) bootLoaderTick(label);
+      return null;
+    }
+  }
   const [
     h, c, rRaw, tRaw, tsRaw, crRaw, uRaw, rfRaw,
     ccRaw, arrRaw, exRaw, rtRaw, msRaw,
-    hbmRaw, hmRaw, haRaw, haiRaw, gcRaw, dmRaw, crvRaw,
+    hbmRaw, hmRaw, haRaw, haiRaw, gcRaw, dmRaw, crvRaw, crvAbhRaw, crvTeamRaw,
   ] = await Promise.all([
     tryFetch("hypercare",            "Hypercare Metrics"),
     fetchOrAgg("calling",            "Calling sheet"),
@@ -4820,19 +4894,9 @@ async function fetchSheets() {
     tryFetch("hitsAprilInactiveCohort","HITS April Inactive Cohort sheet"),
     fetchOrAgg("gcv3Dump",           "GCV3 Dump sheet"),
     fetchOrAgg("dailyMetrics",       "Daily Metrics sheet"),
-    (async () => {
-      // Special path: auto-detect the correct tab name if "Tracker" doesn't work.
-      try {
-        const out = await fetchOneAutoTab("creatives", "Creatives Tracker sheet", "tracker");
-        if (_showBootLoader) bootLoaderTick("Creatives Tracker sheet");
-        return out;
-      } catch (e) {
-        console.warn("Creatives Tracker sheet failed (non-fatal):", e.message);
-        LAST_FETCH_ERRORS.push({ key: "creatives", label: "Creatives Tracker sheet", error: e.message, fileId: SHEETS.creatives.fileId });
-        if (_showBootLoader) bootLoaderTick("Creatives Tracker sheet");
-        return null;
-      }
-    })(),
+    crvFetch("creatives",        "Creatives · Srabanika"),
+    crvFetch("creativesAbhinav", "Creatives · Abhinav"),
+    crvFetch("creativesTeam",    "Creatives · Aditya + Campaign"),
   ]);
 
   if (!h) {
@@ -4900,12 +4964,18 @@ async function fetchSheets() {
     { bySeller: {}, count: 0 });
   const creatives = safeParse("Creatives Tracker", crvRaw, processCreativesCSV,
     { rows: [], count: 0, pending: 0, completed: 0 });
+  const creativesAbhinav = safeParse("Creatives Abhinav", crvAbhRaw, processCreativesCSV,
+    { rows: [], count: 0, pending: 0, completed: 0 });
+  const creativesTeam = safeParse("Creatives Team", crvTeamRaw, processCreativesCSV,
+    { rows: [], count: 0, pending: 0, completed: 0 });
   // Surface fetch failures (e.g. wrong tab name, sheet not shared) so the UI
   // shows the actual reason instead of a misleading "LIVE · 0 rows".
   if (!crvRaw) {
     const fetchErr = LAST_FETCH_ERRORS.find(e => e.key === "creatives");
     if (fetchErr) creatives.error = fetchErr.error;
   }
+  if (!crvAbhRaw) { const e = LAST_FETCH_ERRORS.find(e => e.key === "creativesAbhinav"); if (e) creativesAbhinav.error = e.error; }
+  if (!crvTeamRaw) { const e = LAST_FETCH_ERRORS.find(e => e.key === "creativesTeam"); if (e) creativesTeam.error = e.error; }
   const hyp = processHypercareCSV(h);
   let calls;
   if (HC_AGG.calling) {
@@ -4933,6 +5003,8 @@ async function fetchSheets() {
   data.gcv3Dump = gcv3Dump;
   data.dailyMetrics = dailyMetrics;
   data.creatives = creatives;
+  data.creativesAbhinav = creativesAbhinav;
+  data.creativesTeam = creativesTeam;
   // Expose the COMPLETE Hypercare seller pool (including inactive ones that
   // got filtered out of marketingSellers / scalingSellers). HITS Recovery's
   // enrichment uses this so inactive cohorts (April Inactive, etc.) can still
@@ -6778,7 +6850,7 @@ function _crvFilterRows(rows, mode) {
   });
 }
 
-function renderCreativesTracker() {
+function _renderCreativesTrackerLegacy() {  // superseded by the multi-person Creatives Report below (kept for reference)
   const host = document.getElementById('view-Creatives');
   if (!host) return;
   // 3-way state: DATA not loaded, DATA loaded but creatives missing, OR data present
@@ -6976,6 +7048,149 @@ function renderCreativesTracker() {
     );
     window.location.href = `mailto:?subject=${subject}&body=${body}`;
   });
+}
+
+// ============================================================
+// ✦ CREATIVES REPORT — per-person EOD report across 3 Tracker sheets.
+// Srabanika & Abhinav each have their own sheet (whole sheet = one person).
+// Aditya + the 4 Campaign Team people share one sheet, split by the
+// auto-detected person/assignee column (substring match, easy to tweak).
+// ============================================================
+const CREATIVES_PEOPLE = [
+  { id:'srabanika', name:'Srabanika Das',     group:'Designers',     source:'creatives',        fileId:'1C356r1ZDhsyvlubTpxms949g03gKGsWjMEx0DD7GtPk' },
+  { id:'abhinav',   name:'Abhinav Rana',      group:'Designers',     source:'creativesAbhinav', fileId:'1lLVzc1xzwKXeKfV8pmeU1ULOYeg_EpgnHHA-OoITMIw' },
+  { id:'aditya',    name:'Aditya Kr. Prasad', group:'Designers',     source:'creativesTeam',    fileId:'1uG4u-Ac75g7C-TL1aQ-MYHcCp9Ty3b4X4k67r4zGoZA', patterns:['aditya'] },
+  { id:'rabbani',   name:'Shaik Rabbani',     group:'Campaign Team', source:'creativesTeam',    fileId:'1uG4u-Ac75g7C-TL1aQ-MYHcCp9Ty3b4X4k67r4zGoZA', patterns:['rabbani','shaik'] },
+  { id:'soumen',    name:'Soumen Das',        group:'Campaign Team', source:'creativesTeam',    fileId:'1uG4u-Ac75g7C-TL1aQ-MYHcCp9Ty3b4X4k67r4zGoZA', patterns:['soumen'] },
+  { id:'sneha',     name:'Sneha Sharma',      group:'Campaign Team', source:'creativesTeam',    fileId:'1uG4u-Ac75g7C-TL1aQ-MYHcCp9Ty3b4X4k67r4zGoZA', patterns:['sneha'] },
+  { id:'raj',       name:'Raj Rajak',         group:'Campaign Team', source:'creativesTeam',    fileId:'1uG4u-Ac75g7C-TL1aQ-MYHcCp9Ty3b4X4k67r4zGoZA', patterns:['rajak','raj rajak'] },
+];
+let _crvPerson = 'srabanika';
+function _crvPersonCfg(id){ return CREATIVES_PEOPLE.find(p => p.id === id) || CREATIVES_PEOPLE[0]; }
+function _crvSourceData(srcKey){
+  const p = (typeof CACHED_PAYLOAD !== 'undefined' && CACHED_PAYLOAD) ? CACHED_PAYLOAD : null;
+  return (p && p[srcKey]) ? p[srcKey] : null;
+}
+function _crvRowsFor(person){
+  const src = _crvSourceData(person.source) || {};
+  const all = src.rows || [];
+  if (!person.patterns) return all;                  // single-person sheet → whole sheet
+  const pats = person.patterns.map(s => s.toLowerCase());
+  return all.filter(r => { const nm = String(r.person || '').toLowerCase(); return nm && pats.some(p => nm.includes(p)); });
+}
+// Incentive cycle runs 20th → 19th. Start = the 20th on/before today.
+function _crvCycleStart(today){
+  const d = new Date(today); let y = d.getFullYear(), m = d.getMonth();
+  if (d.getDate() < 20) { m -= 1; if (m < 0) { m = 11; y--; } }
+  return new Date(y, m, 20);
+}
+function _crvCycleLabel(cycleStart){
+  const end = new Date(cycleStart.getFullYear(), cycleStart.getMonth() + 1, 19);
+  const f = d => d.toLocaleDateString('en-IN', { day:'2-digit', month:'short' });
+  return `${f(cycleStart)} – ${f(end)}`;
+}
+function _crvMetrics(rows){
+  const today = new Date(); today.setHours(0,0,0,0);
+  const isoBack = n => localISODate(new Date(today.getTime() - n*86400000));
+  const todayIso = localISODate(today);
+  const monthStartIso = localISODate(new Date(today.getFullYear(), today.getMonth(), 1));
+  const cycleStart = _crvCycleStart(today);
+  const cycleStartIso = localISODate(cycleStart);
+  const completed = rows.filter(r => r.status === 'Completed' && r.has_drive);
+  const pendingRows = rows.filter(r => r.status === 'Pending');
+  const onDay = ds => completed.filter(r => r.done_iso === ds).length;
+  const since = ds => completed.filter(r => r.done_iso && r.done_iso >= ds).length;
+  return {
+    cameToday: rows.filter(r => r.date_iso === todayIso).length,
+    doneToday: onDay(todayIso),
+    done3d: since(isoBack(2)), done7d: since(isoBack(6)),
+    doneMonth: since(monthStartIso), doneCycle: since(cycleStartIso),
+    doneLifetime: completed.length, pending: pendingRows.length,
+    completed, pendingRows, cycleStart,
+  };
+}
+function renderCreativesTracker(){
+  const host = document.getElementById('view-Creatives');
+  if (!host) return;
+  const ready = (typeof CACHED_PAYLOAD !== 'undefined' && CACHED_PAYLOAD) || DATA;
+  if (!ready) {
+    host.innerHTML = `<div class="card"><h3>Creatives Report <span class="pending-tag">LOADING</span></h3><div class="pending-card"><h4>Waiting for the dashboard to finish loading…</h4></div></div>`;
+    return;
+  }
+  const person = _crvPersonCfg(_crvPerson);
+  const src = _crvSourceData(person.source) || {};
+  const rows = _crvRowsFor(person);
+  const m = _crvMetrics(rows);
+
+  const subtabs = ['Designers','Campaign Team'].map(g => {
+    const ppl = CREATIVES_PEOPLE.filter(p => p.group === g);
+    return `<span class="crv-grp-label">${escHtml(g)}</span>` +
+      ppl.map(p => `<button class="subtab${p.id===_crvPerson?' active':''}" data-crv-person="${p.id}">${escHtml(p.name)}</button>`).join('');
+  }).join('');
+
+  const metric = (label, val, accent, sub) => `<div class="crv-metric" style="--m:${accent};">
+      <div class="crv-metric-label">${label}</div>
+      <div class="crv-metric-value">${fmtNum(val)}</div>
+      ${sub ? `<div class="crv-metric-sub">${escHtml(sub)}</div>` : ''}
+    </div>`;
+  const metrics = `<div class="crv-metric-grid">
+    ${metric('🟣 Came today', m.cameToday, 'var(--brand)')}
+    ${metric('✅ Done today', m.doneToday, 'var(--success)')}
+    ${metric('📊 Done · last 3d', m.done3d, 'var(--accent)')}
+    ${metric('📈 Done · last 7d', m.done7d, 'var(--accent)')}
+    ${metric('📆 Done · this month', m.doneMonth, 'var(--brand-2)')}
+    ${metric('🏆 Done · cycle', m.doneCycle, 'var(--highlight)', _crvCycleLabel(m.cycleStart))}
+    ${metric('♾️ Done · lifetime', m.doneLifetime, 'var(--text-soft)')}
+    ${metric('⏳ Pending', m.pending, 'var(--warn)')}
+  </div>`;
+
+  const srcErr = src.error
+    ? `<div style="color:#fca5a5;font-size:12px;margin-top:6px;">⛔ Sheet read failed: <code>${escHtml(String(src.error).slice(0,200))}</code> — share the sheet with the signed-in Google account, then Refresh.</div>` : '';
+  const tally = src._personTally || {};
+  const tk = Object.keys(tally);
+  const diag = person.patterns
+    ? `<div class="crv-diag">Split by assignee ${person.patterns.map(p=>`<code>${escHtml(p)}</code>`).join(' / ')} · <b>${rows.length}</b> matched.${tk.length ? ` Names in sheet: ${tk.slice(0,14).map(k=>`<code>${escHtml(k)}</code>·${tally[k]}`).join(', ')}` : ` <span style="color:#fbbf24;">No assignee column detected yet — once data loads, the names found will list here so we can fix matching.</span>`}</div>`
+    : '';
+
+  const recentDone = m.completed.slice().sort((a,b)=>(b.ts||0)-(a.ts||0)).slice(0,30);
+  const pillRow = (r, status) => `<tr>
+      <td>${escHtml(r.date_str || '—')}</td>
+      <td><span class="crv-status-pill ${status==='Pending'?'crv-status-pending':'crv-status-completed'}">${status}</span></td>
+      <td>${r.has_drive ? `<a href="${escHtml(r.drive_link)}" target="_blank" rel="noopener" style="color:var(--brand);font-size:11.5px;">Open ↗</a>` : '<span class="empty-cell">—</span>'}</td>
+    </tr>`;
+
+  host.innerHTML = `
+    <div class="subtabs crv-people">${subtabs}</div>
+    <div class="card" style="background:linear-gradient(135deg,rgba(244,114,182,0.10),rgba(139,92,246,0.04));border-color:rgba(244,114,182,0.30);">
+      <h3 style="margin:0 0 4px 0;font-family:'Sora',sans-serif;font-size:19px;">🎨 ${escHtml(person.name)} <span style="font-size:12px;color:var(--text-soft);font-weight:600;">· ${escHtml(person.group)}</span></h3>
+      <p style="margin:0;font-size:12.5px;color:var(--text-soft);">
+        EOD report · <a href="https://docs.google.com/spreadsheets/d/${person.fileId}" target="_blank" rel="noopener" style="color:var(--brand);">Tracker sheet ↗</a>
+        · ${rows.length} request${rows.length===1?'':'s'} · <span class="src-tag">LIVE</span>
+      </p>
+      ${srcErr}${diag}
+    </div>
+    ${metrics}
+    <div class="card">
+      <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:10px;">
+        <h3 style="margin:0;">⏳ Pending requests (${m.pending})</h3>
+        <button type="button" class="refresh-btn" id="crv-export-pending" style="margin-left:auto;">📥 Pending CSV</button>
+      </div>
+      <div class="tbl-wrap" style="max-height:54vh;">
+        <table class="t"><thead><tr><th>Date</th><th>Status</th><th>Drive</th></tr></thead>
+        <tbody>${m.pendingRows.length ? m.pendingRows.map(r=>pillRow(r,'Pending')).join('') : `<tr><td colspan="3" style="text-align:center;color:#94a3b8;padding:22px;">🎉 Nothing pending.</td></tr>`}</tbody></table>
+      </div>
+    </div>
+    <div class="card">
+      <h3 style="margin:0 0 10px 0;">✅ Recent completed (${m.doneLifetime} lifetime · latest ${recentDone.length})</h3>
+      <div class="tbl-wrap" style="max-height:48vh;">
+        <table class="t"><thead><tr><th>Date</th><th>Status</th><th>Drive</th></tr></thead>
+        <tbody>${recentDone.length ? recentDone.map(r=>pillRow(r,'Completed')).join('') : `<tr><td colspan="3" style="text-align:center;color:#94a3b8;padding:22px;">No completed creatives yet.</td></tr>`}</tbody></table>
+      </div>
+    </div>`;
+
+  host.querySelectorAll('[data-crv-person]').forEach(b => b.addEventListener('click', () => { _crvPerson = b.dataset.crvPerson; renderCreativesTracker(); }));
+  const ex = document.getElementById('crv-export-pending');
+  if (ex) ex.addEventListener('click', () => _crvExportCSV(m.pendingRows, `creatives-pending-${person.id}-${localISODate(new Date())}.csv`));
 }
 
 function _crvOpenPendingDrilldown(pendingRows) {
