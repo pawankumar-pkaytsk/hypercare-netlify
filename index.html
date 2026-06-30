@@ -4781,6 +4781,8 @@ function bootLoaderDone() {
 const MB_AGG_KEYS = ["calling","tasks","troubleshoot","chatReply","unassignment","dailyARR","experimental","callContext","gcv3Dump","dailyMetrics"];
 let HC_AGG = {};
 let HC_AGG_LOADED = false;
+// Revival Compliance feed (cards 9532 + 10065 → post-revival spend per seller).
+let REVIVAL_SPEND = null;
 function _reviveDates(v) {
   if (v === null || typeof v !== "object") return v;
   if (Array.isArray(v)) { for (let i = 0; i < v.length; i++) v[i] = _reviveDates(v[i]); return v; }
@@ -4809,6 +4811,11 @@ async function loadAggregates() {
   const got = Object.keys(HC_AGG);
   if (got.length) console.log(`[agg] Metabase snapshot: ${got.length} sources [${got.join(", ")}]` + (manifest.generatedAt ? ` · ${manifest.generatedAt}` : ""));
   window.HC_AGG = HC_AGG;
+  // Revival Compliance feed (small, static — no auth).
+  try {
+    const r = await fetch("mb/revivalSpend.json", { cache: "no-store" });
+    if (r.ok) { REVIVAL_SPEND = await r.json(); window.REVIVAL_SPEND = REVIVAL_SPEND; }
+  } catch (e) {}
   return HC_AGG;
 }
 
@@ -6115,98 +6122,93 @@ function renderTroubleshoot() {
 }
 function renderEscalation()  { document.getElementById('sub-escalation').innerHTML = `<div class="card"><h3>Escalation Compliance <span class="pending-tag">AWAITING SCHEMA</span></h3><div class="pending-card"><h4>View definition pending</h4></div></div>`; }
 
+let _revcompDecision = 'revived';   // 'all' | 'revived' | 'churn' | 'self_serve' | 'postponed' | ''
 function renderRevivalCompliance() {
   const host = document.getElementById('sub-revcomp');
   if (!host) return;
-  const payload = (typeof CACHED_PAYLOAD !== 'undefined' && CACHED_PAYLOAD) ? CACHED_PAYLOAD : null;
-  const rt = payload && payload.revivalTrack ? payload.revivalTrack : null;
-  if (!rt || rt.error) {
-    const errMsg = rt && rt.error ? `Fetch failed: ${String(rt.error).slice(0,140)}…` : "Loading…";
-    host.innerHTML = `<div class="card"><h3>Revival Compliance <span class="pending-tag">REVIVAL TRACK</span></h3><div class="pending-card"><h4>${escHtml(errMsg)}</h4></div></div>`;
+  const rs = (typeof REVIVAL_SPEND !== 'undefined' && REVIVAL_SPEND && REVIVAL_SPEND.bySeller) ? REVIVAL_SPEND : null;
+  if (!rs) {
+    host.innerHTML = `<div class="card"><h3>Revival Compliance <span class="pending-tag">PENDING SNAPSHOT</span></h3>
+      <div class="pending-card"><h4>Revival-spend data hasn't been generated yet.</h4>
+      <p style="color:var(--text-soft);font-size:12.5px;line-height:1.6;">Computed in the daily 09:30 snapshot from Metabase card <b>9532</b> (pre-revival spend) + <b>10065</b> (total spend):
+      <b>post-revival spend = max(0, total − pre-revival)</b>; a seller is flagged when that is <b>0</b>. It'll populate after the next refresh.</p></div></div>`;
     return;
   }
-  // Build a seller_id → marketing-seller map so we can read today/yesterday spend
-  const mktBySeller = {};
-  ((DATA && DATA.sellers) || []).forEach(s => { mktBySeller[s.seller_id] = s; });
+  const payload = (typeof CACHED_PAYLOAD !== 'undefined' && CACHED_PAYLOAD) ? CACHED_PAYLOAD : null;
+  const allHyp = (payload && payload.allHypercareSellers) || {};
+  const lookup = sid => allHyp[sid]
+    || (DATA && DATA.sellers && DATA.sellers.find(x => x.seller_id === sid))
+    || (REVIVAL && REVIVAL.sellers && REVIVAL.sellers.find(x => x.seller_id === sid)) || null;
+  const nameFor = sid => { const s = lookup(sid); return s ? (s.seller_name || '') : ''; };
+  const gcFor   = sid => { const s = lookup(sid); return s ? (s.gc_display || s.crm_gc || '') : ''; };
 
-  // Filter: only rows with "Mapping Done" status AND today/yesterday spend < 50
-  // AND the seller is in the Marketing seller list (since this is a Marketing
-  // view — Marketing GCs are the audience).
-  const today0 = new Date(); today0.setHours(0,0,0,0);
-  const eligible = (rt.rows || []).filter(r => {
-    if (!/mapping\s*done/i.test(r.gc_assigned_status || "")) return false;
-    const mkt = mktBySeller[r.seller_id];
-    if (!mkt) return false;
-    const today = mkt.today_spend || 0;
-    const yest  = mkt.yesterday_spend || 0;
-    return (today < 50) && (yest < 50);
-  });
+  const all = Object.entries(rs.bySeller).map(([sid, d]) => ({ sid, ...d }));
+  const decCount = {}, decNot = {};
+  all.forEach(r => { const k = r.decision || ''; decCount[k] = (decCount[k]||0)+1; if (!r.started) decNot[k] = (decNot[k]||0)+1; });
+  const decLabel = d => d === '' ? '(no decision)' : d;
+  const order = ['revived','churn','self_serve','postponed',''];
+  const decisions = order.filter(d => d in decCount).concat(Object.keys(decCount).filter(d => !order.includes(d)));
+  if (_revcompDecision !== 'all' && !(_revcompDecision in decCount)) _revcompDecision = ('revived' in decCount) ? 'revived' : 'all';
 
-  // Sort by revival timestamp descending (newest first)
-  eligible.sort((a, b) => {
-    const da = a.revival_ts ? a.revival_ts.getTime() : 0;
-    const db = b.revival_ts ? b.revival_ts.getTime() : 0;
-    return db - da;
-  });
+  const inFilter = r => _revcompDecision === 'all' ? true : (r.decision || '') === _revcompDecision;
+  const universe = all.filter(inFilter);
+  const notStarted = universe.filter(r => !r.started).sort((a, b) => b.preRevival - a.preRevival);
+  const startedN = universe.length - notStarted.length;
 
-  // Summary cards
-  const totalRevived = (rt.rows || []).filter(r => /mapping\s*done/i.test(r.gc_assigned_status || "")).length;
-  const flagged = eligible.length;
+  const chip = (id, label, sub) => `<button class="subtab${_revcompDecision===id?' active':''}" data-revcomp-dec="${id}">${escHtml(label)}${sub!=null?` <span style="opacity:.65;font-weight:700;">${sub}</span>`:''}</button>`;
+  const chips = chip('all', 'All', `${all.filter(r => !r.started).length}`) + decisions.map(d => chip(d, decLabel(d), `${decNot[d]||0}`)).join('');
+  const gen = rs.generatedAt ? `<span style="color:var(--text-faint);font-size:11px;font-weight:500;"> · snapshot ${escHtml(String(rs.generatedAt).slice(0,10))}</span>` : '';
+
   const summary = `<div class="sl-grid">
     <div class="sl-card overall">
-      <div class="sl-label">Revived &amp; mapped — total</div>
-      <div class="sl-value">${fmtNum(totalRevived)}</div>
-      <div class="sl-sub">From Revival Track sheet · status: Mapping Done</div>
+      <div class="sl-label">Revived &amp; did NOT start spending</div>
+      <div class="sl-value" style="color:#fff;">${fmtNum(notStarted.length)}</div>
+      <div class="sl-sub">post-revival spend = 0 · filter: ${escHtml(decLabel(_revcompDecision))}</div>
     </div>
-    <div class="sl-card" style="border-color:rgba(248,113,113,0.40);">
-      <div class="sl-label">Flagged: Spend Not Started</div>
-      <div class="sl-value" style="color:var(--danger);">${fmtNum(flagged)}</div>
-      <div class="sl-sub">Today &lt; ₹50 AND Yesterday &lt; ₹50</div>
+    <div class="sl-card">
+      <div class="sl-label">Started spending</div>
+      <div class="sl-value" style="color:var(--success);">${fmtNum(startedN)}</div>
+      <div class="sl-sub">post-revival spend &gt; ₹0</div>
+    </div>
+    <div class="sl-card">
+      <div class="sl-label">In this filter</div>
+      <div class="sl-value">${fmtNum(universe.length)}</div>
+      <div class="sl-sub">${fmtNum(all.length)} total revived/unassigned</div>
     </div>
   </div>`;
 
-  const tableRows = eligible.map(r => {
-    const mkt = mktBySeller[r.seller_id] || {};
-    const name = r.seller_name || mkt.seller_name || '';
-    const tsLabel = r.revival_ts
-      ? localDateTime(r.revival_ts)
-      : (r.revival_ts_raw || '');
-    const amount = (r.amount_added !== null && r.amount_added !== undefined)
-      ? fmtNum(r.amount_added)
-      : (r.amount_added === 0 ? '0' : '<span class="empty-cell">—</span>');
-    return `<tr>
-      ${sellerIdCell(r.seller_id)}
-      <td>${escHtml(name) || '<span class="empty-cell">—</span>'}</td>
-      <td>${escHtml(r.revived_by) || '<span class="empty-cell">—</span>'}</td>
-      <td style="white-space:nowrap;color:#475569;">${escHtml(tsLabel) || '<span class="empty-cell">—</span>'}</td>
-      <td class="num" style="font-weight:600;color:${(r.amount_added || 0) > 0 ? 'var(--success)' : 'var(--text-faint)'};">${amount}</td>
-      <td class="gc">${escHtml(r.assigned_gc) || '<span class="empty-cell">—</span>'}</td>
-      <td class="num">${fmtNum(mkt.today_spend)}</td>
-      <td class="num">${fmtNum(mkt.yesterday_spend)}</td>
-    </tr>`;
-  }).join('');
+  const rowsHtml = notStarted.map(r => `<tr>
+    ${sellerIdCell(r.sid)}
+    <td>${escHtml(nameFor(r.sid)) || '<span class="empty-cell">—</span>'}</td>
+    <td class="gc">${escHtml(gcFor(r.sid)) || '<span class="empty-cell">—</span>'}</td>
+    <td>${r.decision ? escHtml(r.decision) : '<span class="empty-cell">—</span>'}</td>
+    <td style="white-space:nowrap;color:var(--text-faint);">${escHtml(r.goLive) || '<span class="empty-cell">—</span>'}</td>
+    <td class="num">${fmtNum(r.preRevival)}</td>
+    <td class="num">${fmtNum(r.totalSpend)}</td>
+    <td class="num" style="font-weight:700;color:${r.spendAfter > 0 ? 'var(--success)' : 'var(--danger)'};">${fmtNum(r.spendAfter)}</td>
+  </tr>`).join('');
 
   host.innerHTML = `<div class="card">
-    <h3>Revival Compliance <span class="src-tag">LIVE</span></h3>
-    <p style="color:#475569;font-size:12px;margin:0 0 12px 0;">
-      Sellers who have been revived (status: Mapping Done in the Revival Track sheet) and assigned
-      to a Marketing GC, but where Today's spend <b>and</b> Yesterday's spend are both under ₹50.
-      These are sellers the Marketing GC needs to chase — they're freshly revived but haven't started spending yet.
+    <h3>Revival Compliance <span class="src-tag">LIVE</span>${gen}</h3>
+    <p style="color:var(--text-soft);font-size:12px;margin:0 0 12px 0;line-height:1.6;">
+      Revived sellers who <b>haven't started spending again</b>. Post-revival spend =
+      <b>max(0, total spend − pre-revival spend)</b> — card 10065 total minus card 9532 pre-unassignment spend.
+      Flagged when post-revival spend is <b>₹0</b>. Filter by revival decision below.
     </p>
+    <div class="subtabs" style="margin-bottom:12px;">${chips}</div>
     ${summary}
-    <div class="tbl-wrap">
+    <div class="tbl-wrap" style="margin-top:14px;">
       <table class="t">
         <thead><tr>
-          <th>Seller ID</th><th>Seller Name</th><th>Revived By</th>
-          <th>Revival Timestamp</th><th class="num">Amount Added</th>
-          <th>Assigned GC</th>
-          <th class="num">Today Spend</th><th class="num">Yesterday Spend</th>
+          <th>Seller ID</th><th>Seller Name</th><th>GC</th><th>Decision</th><th>Go-live</th>
+          <th class="num">Pre-revival ₹</th><th class="num">Total ₹</th><th class="num">Post-revival ₹</th>
         </tr></thead>
-        <tbody>${tableRows || `<tr><td colspan="8" style="text-align:center;color:#94a3b8;padding:20px;">No flagged sellers — everyone who's been revived has started spending.</td></tr>`}</tbody>
+        <tbody>${rowsHtml || `<tr><td colspan="8" style="text-align:center;color:#94a3b8;padding:20px;">No flagged sellers in this filter — all started spending. 🎉</td></tr>`}</tbody>
       </table>
     </div>
-    <p style="color:#94a3b8;font-size:11px;margin-top:6px;">${eligible.length} flagged seller${eligible.length===1?'':'s'} · ${totalRevived} total revived &amp; mapped.</p>
+    <p style="color:#94a3b8;font-size:11px;margin-top:6px;">${notStarted.length} flagged (not spending) · ${universe.length} in filter · ${all.length} total revived/unassigned.</p>
   </div>`;
+  host.querySelectorAll('[data-revcomp-dec]').forEach(b => b.addEventListener('click', () => { _revcompDecision = b.dataset.revcompDec; renderRevivalCompliance(); }));
 }
 function renderAll() {
   if (!DATA) return;
