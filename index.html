@@ -6177,6 +6177,43 @@ function renderRevivalCompliance() {
     </div>
   </div>`;
 
+  // GC-wise compliance over the current filter universe (GC from card 7753).
+  const gcAgg = {};
+  universe.forEach(r => {
+    const key = norm(r.gc);
+    const label = (typeof DISPLAY !== 'undefined' && DISPLAY[key]) || key || '(no GC)';
+    const g = gcAgg[label] || (gcAgg[label] = { assigned: 0, started: 0 });
+    g.assigned++; if (r.started) g.started++;
+  });
+  const pctColor = p => p >= 70 ? 'var(--success)' : p >= 40 ? 'var(--warn)' : 'var(--danger)';
+  const gcList = Object.entries(gcAgg)
+    .map(([gc, v]) => ({ gc, assigned: v.assigned, started: v.started, pct: v.assigned ? Math.round(1000 * v.started / v.assigned) / 10 : 0 }))
+    .sort((a, b) => b.assigned - a.assigned);
+  const ovStarted = universe.filter(r => r.started).length;
+  const ovPct = universe.length ? Math.round(1000 * ovStarted / universe.length) / 10 : 0;
+  const gcRowsHtml = gcList.map(g => `<tr>
+      <td class="gc" style="text-align:left;">${escHtml(g.gc)}</td>
+      <td class="num">${fmtNum(g.assigned)}</td>
+      <td class="num" style="color:var(--success);font-weight:600;">${fmtNum(g.started)}</td>
+      <td class="num" style="color:var(--text-faint);">${fmtNum(g.assigned - g.started)}</td>
+      <td class="num" style="font-weight:800;color:${pctColor(g.pct)};">${g.pct}%</td>
+    </tr>`).join('');
+  const gcTable = `<div class="card" style="margin-top:14px;">
+    <h3 style="margin:0 0 4px 0;">GC-wise Revival Compliance</h3>
+    <p style="color:var(--text-soft);font-size:12px;margin:0 0 10px 0;line-height:1.55;">
+      Compliance = <b>started spending post-revival ÷ assigned post-revival</b> · post-revival GC from card 7753 · filter: <b>${escHtml(decLabel(_revcompDecision))}</b>
+    </p>
+    <div class="tbl-wrap">
+      <table class="t">
+        <thead><tr><th style="text-align:left;">GC (post-revival)</th><th class="num">Revived assigned</th><th class="num">Started spending</th><th class="num">Not started</th><th class="num">Compliance %</th></tr></thead>
+        <tbody>
+          <tr style="font-weight:800;background:var(--brand-soft);"><td style="text-align:left;">ALL GCs</td><td class="num">${fmtNum(universe.length)}</td><td class="num" style="color:var(--success);">${fmtNum(ovStarted)}</td><td class="num">${fmtNum(universe.length - ovStarted)}</td><td class="num" style="color:${pctColor(ovPct)};">${ovPct}%</td></tr>
+          ${gcRowsHtml || `<tr><td colspan="5" style="text-align:center;color:#94a3b8;padding:18px;">No GC data.</td></tr>`}
+        </tbody>
+      </table>
+    </div>
+  </div>`;
+
   const rowsHtml = notStarted.map(r => `<tr>
     ${sellerIdCell(r.sid)}
     <td>${escHtml(nameFor(r.sid)) || '<span class="empty-cell">—</span>'}</td>
@@ -6197,7 +6234,9 @@ function renderRevivalCompliance() {
     </p>
     <div class="subtabs" style="margin-bottom:12px;">${chips}</div>
     ${summary}
-    <div class="tbl-wrap" style="margin-top:14px;">
+    ${gcTable}
+    <h3 style="margin:16px 0 8px 0;">Flagged sellers — not spending</h3>
+    <div class="tbl-wrap" style="margin-top:0;">
       <table class="t">
         <thead><tr>
           <th>Seller ID</th><th>Seller Name</th><th>GC</th><th>Decision</th><th>Go-live</th>
