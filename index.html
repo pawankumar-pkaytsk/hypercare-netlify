@@ -2540,6 +2540,10 @@
   .crv-metric-label{ font-size:11.5px; font-weight:600; color:var(--text-soft); margin-bottom:6px; }
   .crv-metric-value{ font-family:"Sora","Inter",sans-serif; font-size:27px; font-weight:800; line-height:1; color:var(--text); }
   .crv-metric-sub{ font-size:10.5px; color:var(--text-faint); margin-top:5px; font-weight:600; }
+  /* clickable numbers (Revival Compliance drilldowns) */
+  .rdc{ cursor:pointer; transition:filter .15s ease, text-decoration-color .15s ease; text-decoration:underline dotted transparent; text-underline-offset:3px; }
+  .rdc:hover{ filter:brightness(1.2); text-decoration:underline dotted currentColor; }
+  td.rdc:hover{ background:var(--brand-soft); }
   .crv-diag{ margin-top:8px; font-size:11px; color:var(--text-soft); line-height:1.55; }
   .crv-diag code{ font-size:10.5px; }
   @media (max-width:768px){ .crv-metric-grid{ grid-template-columns:repeat(2,1fr) !important; gap:10px !important; } .crv-metric-value{ font-size:23px !important; } }
@@ -2815,7 +2819,7 @@
         <button class="drill-close" type="button" data-close="1" aria-label="Close">✕</button>
       </div>
     </div>
-    <div class="drill-body"></div>
+    <div class="drill-body" id="drill-body"></div>
   </div>
 </div>
 
@@ -6159,56 +6163,60 @@ function renderRevivalCompliance() {
   const chips = chip('all', 'All', `${all.filter(r => !r.started).length}`) + decisions.map(d => chip(d, decLabel(d), `${decNot[d]||0}`)).join('');
   const gen = rs.generatedAt ? `<span style="color:var(--text-faint);font-size:11px;font-weight:500;"> · snapshot ${escHtml(String(rs.generatedAt).slice(0,10))}</span>` : '';
 
+  const OVER = 15000;   // "spend > ₹15k post-revival" threshold
   const summary = `<div class="sl-grid">
     <div class="sl-card overall">
       <div class="sl-label">Revived &amp; did NOT start spending</div>
-      <div class="sl-value" style="color:#fff;">${fmtNum(notStarted.length)}</div>
+      <div class="sl-value rdc" data-rd-gc="ALL" data-rd-metric="notstarted" style="color:#fff;">${fmtNum(notStarted.length)}</div>
       <div class="sl-sub">post-revival spend = 0 · filter: ${escHtml(decLabel(_revcompDecision))}</div>
     </div>
     <div class="sl-card">
       <div class="sl-label">Started spending</div>
-      <div class="sl-value" style="color:var(--success);">${fmtNum(startedN)}</div>
+      <div class="sl-value rdc" data-rd-gc="ALL" data-rd-metric="started" style="color:var(--success);">${fmtNum(startedN)}</div>
       <div class="sl-sub">post-revival spend &gt; ₹0</div>
     </div>
     <div class="sl-card">
       <div class="sl-label">In this filter</div>
-      <div class="sl-value">${fmtNum(universe.length)}</div>
+      <div class="sl-value rdc" data-rd-gc="ALL" data-rd-metric="assigned">${fmtNum(universe.length)}</div>
       <div class="sl-sub">${fmtNum(all.length)} total revived/unassigned</div>
     </div>
   </div>`;
 
   // GC-wise compliance over the current filter universe (GC from card 7753).
+  const gcLabel = r => { const k = norm(r.gc); return (typeof DISPLAY !== 'undefined' && DISPLAY[k]) || k || '(no GC)'; };
   const gcAgg = {};
   universe.forEach(r => {
-    const key = norm(r.gc);
-    const label = (typeof DISPLAY !== 'undefined' && DISPLAY[key]) || key || '(no GC)';
-    const g = gcAgg[label] || (gcAgg[label] = { assigned: 0, started: 0 });
-    g.assigned++; if (r.started) g.started++;
+    const g = gcAgg[gcLabel(r)] || (gcAgg[gcLabel(r)] = { assigned: 0, started: 0, over15k: 0 });
+    g.assigned++; if (r.started) g.started++; if (r.spendAfter > OVER) g.over15k++;
   });
   const pctColor = p => p >= 70 ? 'var(--success)' : p >= 40 ? 'var(--warn)' : 'var(--danger)';
   const gcList = Object.entries(gcAgg)
-    .map(([gc, v]) => ({ gc, assigned: v.assigned, started: v.started, pct: v.assigned ? Math.round(1000 * v.started / v.assigned) / 10 : 0 }))
+    .map(([gc, v]) => ({ gc, assigned: v.assigned, started: v.started, over15k: v.over15k, pct: v.assigned ? Math.round(1000 * v.started / v.assigned) / 10 : 0 }))
     .sort((a, b) => b.assigned - a.assigned);
   const ovStarted = universe.filter(r => r.started).length;
+  const ovOver = universe.filter(r => r.spendAfter > OVER).length;
   const ovPct = universe.length ? Math.round(1000 * ovStarted / universe.length) / 10 : 0;
-  const gcRowsHtml = gcList.map(g => `<tr>
+  // clickable numeric cell → drilldown
+  const tdNum = (val, gc, metric, style) => `<td class="num rdc" data-rd-gc="${gc}" data-rd-metric="${metric}"${style?` style="${style}"`:''}>${val}</td>`;
+  const gcRowsHtml = gcList.map((g, i) => `<tr>
       <td class="gc" style="text-align:left;">${escHtml(g.gc)}</td>
-      <td class="num">${fmtNum(g.assigned)}</td>
-      <td class="num" style="color:var(--success);font-weight:600;">${fmtNum(g.started)}</td>
-      <td class="num" style="color:var(--text-faint);">${fmtNum(g.assigned - g.started)}</td>
-      <td class="num" style="font-weight:800;color:${pctColor(g.pct)};">${g.pct}%</td>
+      ${tdNum(fmtNum(g.assigned), i, 'assigned')}
+      ${tdNum(fmtNum(g.started), i, 'started', 'color:var(--success);font-weight:600;')}
+      ${tdNum(fmtNum(g.assigned - g.started), i, 'notstarted', 'color:var(--text-faint);')}
+      ${tdNum(fmtNum(g.over15k), i, 'over15k', 'color:var(--brand);font-weight:700;')}
+      ${tdNum(g.pct + '%', i, 'assigned', 'font-weight:800;color:' + pctColor(g.pct) + ';')}
     </tr>`).join('');
   const gcTable = `<div class="card" style="margin-top:14px;">
     <h3 style="margin:0 0 4px 0;">GC-wise Revival Compliance</h3>
     <p style="color:var(--text-soft);font-size:12px;margin:0 0 10px 0;line-height:1.55;">
-      Compliance = <b>started spending post-revival ÷ assigned post-revival</b> · post-revival GC from card 7753 · filter: <b>${escHtml(decLabel(_revcompDecision))}</b>
+      Compliance = <b>started spending post-revival ÷ assigned post-revival</b> · post-revival GC from card 7753 · filter: <b>${escHtml(decLabel(_revcompDecision))}</b>. <span style="color:var(--brand);">Tap any number</span> to see the sellers.
     </p>
     <div class="tbl-wrap">
       <table class="t">
-        <thead><tr><th style="text-align:left;">GC (post-revival)</th><th class="num">Revived assigned</th><th class="num">Started spending</th><th class="num">Not started</th><th class="num">Compliance %</th></tr></thead>
+        <thead><tr><th style="text-align:left;">GC (post-revival)</th><th class="num">Revived assigned</th><th class="num">Started spending</th><th class="num">Not started</th><th class="num">Spend &gt; ₹15k</th><th class="num">Compliance %</th></tr></thead>
         <tbody>
-          <tr style="font-weight:800;background:var(--brand-soft);"><td style="text-align:left;">ALL GCs</td><td class="num">${fmtNum(universe.length)}</td><td class="num" style="color:var(--success);">${fmtNum(ovStarted)}</td><td class="num">${fmtNum(universe.length - ovStarted)}</td><td class="num" style="color:${pctColor(ovPct)};">${ovPct}%</td></tr>
-          ${gcRowsHtml || `<tr><td colspan="5" style="text-align:center;color:#94a3b8;padding:18px;">No GC data.</td></tr>`}
+          <tr style="font-weight:800;background:var(--brand-soft);"><td style="text-align:left;">ALL GCs</td>${tdNum(fmtNum(universe.length),'ALL','assigned')}${tdNum(fmtNum(ovStarted),'ALL','started','color:var(--success);')}${tdNum(fmtNum(universe.length - ovStarted),'ALL','notstarted')}${tdNum(fmtNum(ovOver),'ALL','over15k','color:var(--brand);')}${tdNum(ovPct + '%','ALL','assigned','color:' + pctColor(ovPct) + ';')}</tr>
+          ${gcRowsHtml || `<tr><td colspan="6" style="text-align:center;color:#94a3b8;padding:18px;">No GC data.</td></tr>`}
         </tbody>
       </table>
     </div>
@@ -6248,6 +6256,53 @@ function renderRevivalCompliance() {
     <p style="color:#94a3b8;font-size:11px;margin-top:6px;">${notStarted.length} flagged (not spending) · ${universe.length} in filter · ${all.length} total revived/unassigned.</p>
   </div>`;
   host.querySelectorAll('[data-revcomp-dec]').forEach(b => b.addEventListener('click', () => { _revcompDecision = b.dataset.revcompDec; renderRevivalCompliance(); }));
+  // Clickable numbers → drill into the underlying sellers.
+  host.querySelectorAll('[data-rd-gc]').forEach(el => el.addEventListener('click', () => {
+    const gcSel = el.dataset.rdGc, metric = el.dataset.rdMetric;
+    const pool = (gcSel === 'ALL') ? universe : universe.filter(r => gcLabel(r) === (gcList[+gcSel] || {}).gc);
+    let sub = pool, mlabel = 'assigned post-revival';
+    if (metric === 'started') { sub = pool.filter(r => r.started); mlabel = 'started spending post-revival'; }
+    else if (metric === 'notstarted') { sub = pool.filter(r => !r.started); mlabel = 'NOT spending post-revival'; }
+    else if (metric === 'over15k') { sub = pool.filter(r => r.spendAfter > OVER); mlabel = 'spent > ₹15k post-revival'; }
+    const who = (gcSel === 'ALL') ? 'All GCs' : (gcList[+gcSel] || {}).gc;
+    _revcompDrill(`${escHtml(who)} · ${mlabel}`, sub.map(r => ({ ...r, name: nameFor(r.sid), gcDisp: gcLabel(r) })));
+  }));
+}
+function _revcompDrill(title, rows) {
+  const modal = document.getElementById('drill-modal');
+  const t = document.getElementById('drill-title');
+  const b = document.getElementById('drill-body');
+  if (!modal || !t || !b) return;
+  rows = rows.slice().sort((a, b) => (b.spendAfter || 0) - (a.spendAfter || 0));
+  t.innerHTML = `${title} <span style="color:var(--text-soft);font-weight:500;font-size:13px;">(${rows.length})</span>`;
+  const body = rows.map(r => `<tr>
+    ${sellerIdCell(r.sid)}
+    <td>${escHtml(r.name) || '<span class="empty-cell">—</span>'}</td>
+    <td class="gc">${escHtml(r.gcDisp || '') || '<span class="empty-cell">—</span>'}</td>
+    <td>${r.decision ? escHtml(r.decision) : '<span class="empty-cell">—</span>'}</td>
+    <td style="white-space:nowrap;color:var(--text-faint);">${escHtml(r.goLive || '') || '—'}</td>
+    <td class="num">${fmtNum(r.preRevival)}</td>
+    <td class="num">${fmtNum(r.totalSpend)}</td>
+    <td class="num" style="font-weight:700;color:${r.spendAfter > 0 ? 'var(--success)' : 'var(--danger)'};">${fmtNum(r.spendAfter)}</td>
+  </tr>`).join('');
+  b.innerHTML = `<div style="display:flex;justify-content:flex-end;margin-bottom:10px;">
+      <button type="button" class="refresh-btn" id="revdrill-export">📥 Download CSV</button></div>
+    <div class="tbl-wrap" style="max-height:64vh;">
+      <table class="t"><thead><tr><th>Seller ID</th><th>Name</th><th>GC</th><th>Decision</th><th>Go-live</th><th class="num">Pre ₹</th><th class="num">Total ₹</th><th class="num">Post ₹</th></tr></thead>
+      <tbody>${body || `<tr><td colspan="8" style="text-align:center;color:#94a3b8;padding:24px;">No sellers.</td></tr>`}</tbody></table>
+    </div>`;
+  modal.classList.add('open');
+  const ex = document.getElementById('revdrill-export');
+  if (ex) ex.addEventListener('click', () => {
+    const esc = v => { const s = String(v == null ? '' : v); return /[",\n]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s; };
+    const lines = [['Seller ID','Name','GC','Decision','Go-live','Pre-revival','Total','Post-revival'].join(',')]
+      .concat(rows.map(r => [r.sid, r.name, r.gcDisp, r.decision, r.goLive, r.preRevival, r.totalSpend, r.spendAfter].map(esc).join(',')));
+    const blob = new Blob([lines.join('\n')], { type: 'text/csv' });
+    const u = URL.createObjectURL(blob); const a = document.createElement('a');
+    a.href = u; a.download = `revival-compliance-${localISODate(new Date())}.csv`;
+    document.body.appendChild(a); a.click(); document.body.removeChild(a);
+    setTimeout(() => URL.revokeObjectURL(u), 1000);
+  });
 }
 function renderAll() {
   if (!DATA) return;
