@@ -9887,6 +9887,7 @@ function buildUnassignmentData() {
     postponedSkipped,
     statusCounts,
     allFilteredRows,
+    allRows: (u.rows || []),   // untouched rows — for the decision & consolidated charts
     error: u.error || null,
   };
 }
@@ -10058,6 +10059,22 @@ function renderUnassignment() {
         <canvas id="unas-chart"></canvas>
       </div>
       <p id="unas-chart-empty" style="display:none;color:#94a3b8;font-size:12px;text-align:center;padding:14px;">No dated rows in the selected range.</p>
+    </div>
+    <div class="card">
+      <h3>Revival Actions Movement <span class="src-tag">DAILY</span></h3>
+      <p style="color:#475569;font-size:12px;margin:0 0 10px 0;">Daily count of revival outcomes by <b>decision</b> (revived · self-serve · churn), by Date Created — respects all filters above.</p>
+      <div style="position:relative;height:340px;width:100%;">
+        <canvas id="unas-actions-chart"></canvas>
+      </div>
+      <p id="unas-actions-empty" style="display:none;color:#94a3b8;font-size:12px;text-align:center;padding:14px;">No decision rows in the selected range.</p>
+    </div>
+    <div class="card">
+      <h3>Consolidated · Unassignment vs Actions <span class="src-tag">DAILY</span></h3>
+      <p style="color:#475569;font-size:12px;margin:0 0 10px 0;"><b>Unassignment (raised)</b> = all requests by day · <b>Actions (decided)</b> = requests with a revival decision recorded. Click a legend item to toggle it on/off.</p>
+      <div style="position:relative;height:340px;width:100%;">
+        <canvas id="unas-consol-chart"></canvas>
+      </div>
+      <p id="unas-consol-empty" style="display:none;color:#94a3b8;font-size:12px;text-align:center;padding:14px;">No dated rows in the selected range.</p>
     </div>`;
 
   // Wire counter / cell click handlers
@@ -10101,8 +10118,10 @@ function renderUnassignment() {
     });
   });
 
-  // Draw chart
+  // Draw charts
   renderUnassignmentChart(data, weeksRange);
+  renderUnassignmentActionsChart(data);
+  renderUnassignmentConsolidatedChart(data);
 }
 
 function renderUnassignmentChart(data, weeksInRange) {
@@ -10241,6 +10260,115 @@ function renderUnassignmentChart(data, weeksInRange) {
       },
       animation: { duration: 600, easing: 'easeOutCubic' },
     }
+  });
+}
+
+// ---- Shared line-chart scaffolding for the two extra Unassignment charts ----
+let unasActionsChart = null, unasConsolChart = null;
+function _unasChartOptions() {
+  return {
+    responsive: true, maintainAspectRatio: false,
+    interaction: { mode: 'index', intersect: false },
+    plugins: {
+      legend: { position: 'top', labels: { color: '#c1cad9', usePointStyle: true, padding: 14, font: { size: 12, weight: 600, family: 'Inter' } } },
+      tooltip: {
+        backgroundColor: 'rgba(14,20,38,0.95)', titleColor: '#f1f5fb', bodyColor: '#c1cad9',
+        borderColor: 'rgba(139,92,246,0.30)', borderWidth: 1, padding: 12, cornerRadius: 10,
+        titleFont: { weight: 700, family: 'Inter' }, bodyFont: { size: 12, family: 'Inter' },
+        displayColors: true, usePointStyle: true,
+      },
+    },
+    scales: {
+      x: { grid: { display: false }, ticks: { color: '#94a3b8', font: { size: 11, family: 'Inter' }, maxRotation: 45, minRotation: 45 }, border: { color: 'rgba(255,255,255,0.08)' } },
+      y: { beginAtZero: true, grid: { color: 'rgba(255,255,255,0.05)', drawTicks: false }, ticks: { color: '#94a3b8', font: { size: 11, family: 'Inter' }, precision: 0 }, border: { display: false } },
+    },
+    animation: { duration: 600, easing: 'easeOutCubic' },
+  };
+}
+function _unasDataset(label, data, line, fill) {
+  return {
+    label, data, borderColor: line, backgroundColor: fill, tension: 0.32,
+    pointRadius: 3, pointHoverRadius: 6, pointBackgroundColor: line, pointBorderColor: '#0f1729',
+    pointBorderWidth: 1.5, borderWidth: 2.5, fill: !!fill,
+  };
+}
+// Normalize the decision (col P) → revival outcome bucket.
+function _unasDecision(r) {
+  const d = String(r.decision || '').toLowerCase();
+  if (/revi/.test(d)) return 'revived';
+  if (/self/.test(d)) return 'self_serve';
+  if (/churn/.test(d)) return 'churn';
+  if (/postpon/.test(d)) return 'postponed';
+  return null;
+}
+// Rows passing the current status/assignee/date filters + week range (week mode).
+function _unasChartRows(data) {
+  const weeksSet = new Set(data.weeksInRange);
+  const useWeek = (unasFilterMode === 'week');
+  return (data.allRows || []).filter(r => {
+    if (!unasRowPasses(r)) return false;
+    if (useWeek && weeksSet.size && !weeksSet.has(r.week || '(no week)')) return false;
+    return !!parseTaskDate(r.date_created);
+  });
+}
+const _unasDayKey = d => `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
+const _unasDayLabel = k => { const [y,m,d] = k.split('-').map(Number); return new Date(y, m-1, d).toLocaleDateString('en-IN', { day:'2-digit', month:'short' }); };
+
+// Graph 2 — daily revival OUTCOMES (decision): revived / self_serve / churn.
+function renderUnassignmentActionsChart(data) {
+  const canvas = document.getElementById('unas-actions-chart');
+  const empty  = document.getElementById('unas-actions-empty');
+  if (!canvas || typeof Chart === 'undefined') return;
+  const rows = _unasChartRows(data);
+  const buckets = ['revived', 'self_serve', 'churn'];
+  const series = { revived: {}, self_serve: {}, churn: {} };
+  const days = new Set();
+  rows.forEach(r => {
+    const b = _unasDecision(r);
+    if (!b || !series[b]) return;
+    const k = _unasDayKey(parseTaskDate(r.date_created));
+    days.add(k); series[b][k] = (series[b][k] || 0) + 1;
+  });
+  const dayList = [...days].sort();
+  if (unasActionsChart) { try { unasActionsChart.destroy(); } catch (e) {} unasActionsChart = null; }
+  if (!dayList.length) { canvas.style.display = 'none'; if (empty) empty.style.display = 'block'; return; }
+  canvas.style.display = ''; if (empty) empty.style.display = 'none';
+  const colors = { revived: ['#34d399', 'rgba(16,185,129,0.16)'], self_serve: ['#22d3ee', 'rgba(34,211,238,0.14)'], churn: ['#f472b6', 'rgba(244,114,182,0.14)'] };
+  unasActionsChart = new Chart(canvas.getContext('2d'), {
+    type: 'line',
+    data: { labels: dayList.map(_unasDayLabel), datasets: buckets.map(b => _unasDataset(b, dayList.map(k => series[b][k] || 0), colors[b][0], colors[b][1])) },
+    options: _unasChartOptions(),
+  });
+}
+
+// Graph 3 — consolidated: Unassignment (requests raised) vs Actions (decisions taken). Toggle via legend.
+function renderUnassignmentConsolidatedChart(data) {
+  const canvas = document.getElementById('unas-consol-chart');
+  const empty  = document.getElementById('unas-consol-empty');
+  if (!canvas || typeof Chart === 'undefined') return;
+  const rows = _unasChartRows(data);
+  const raised = {}, acted = {};
+  const days = new Set();
+  rows.forEach(r => {
+    const k = _unasDayKey(parseTaskDate(r.date_created));
+    days.add(k);
+    raised[k] = (raised[k] || 0) + 1;
+    if (_unasDecision(r)) acted[k] = (acted[k] || 0) + 1;
+  });
+  const dayList = [...days].sort();
+  if (unasConsolChart) { try { unasConsolChart.destroy(); } catch (e) {} unasConsolChart = null; }
+  if (!dayList.length) { canvas.style.display = 'none'; if (empty) empty.style.display = 'block'; return; }
+  canvas.style.display = ''; if (empty) empty.style.display = 'none';
+  unasConsolChart = new Chart(canvas.getContext('2d'), {
+    type: 'line',
+    data: {
+      labels: dayList.map(_unasDayLabel),
+      datasets: [
+        _unasDataset('Unassignment (raised)', dayList.map(k => raised[k] || 0), '#818cf8', 'rgba(99,102,241,0.16)'),
+        _unasDataset('Actions (decided)',      dayList.map(k => acted[k]  || 0), '#fbbf24', 'rgba(251,191,36,0.14)'),
+      ],
+    },
+    options: _unasChartOptions(),
   });
 }
 
