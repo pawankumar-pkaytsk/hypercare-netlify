@@ -10172,6 +10172,7 @@ function renderUnassignmentChart(data, weeksInRange) {
 
   unasChart = new Chart(canvas.getContext('2d'), {
     type: 'line',
+    plugins: [valueLabelsPlugin],
     data: {
       labels,
       datasets: [
@@ -10265,6 +10266,29 @@ function renderUnassignmentChart(data, weeksInRange) {
 
 // ---- Shared line-chart scaffolding for the two extra Unassignment charts ----
 let unasActionsChart = null, unasConsolChart = null;
+// Draws the numeric value above each (non-zero) data point. Added per-chart so
+// it doesn't affect other views' charts. Respects legend toggle visibility.
+const valueLabelsPlugin = {
+  id: 'valueLabels',
+  afterDatasetsDraw(chart) {
+    const ctx = chart.ctx;
+    ctx.save();
+    ctx.font = "700 10px Inter, sans-serif";
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'bottom';
+    chart.data.datasets.forEach((ds, di) => {
+      if (!chart.isDatasetVisible(di)) return;
+      const meta = chart.getDatasetMeta(di);
+      meta.data.forEach((pt, i) => {
+        const v = ds.data[i];
+        if (!v) return;                       // skip 0 / null to cut clutter
+        ctx.fillStyle = ds.borderColor || '#c1cad9';
+        ctx.fillText(String(v), pt.x, pt.y - 6);
+      });
+    });
+    ctx.restore();
+  }
+};
 function _unasChartOptions() {
   return {
     responsive: true, maintainAspectRatio: false,
@@ -10338,6 +10362,7 @@ function renderUnassignmentActionsChart(data) {
     type: 'line',
     data: { labels: dayList.map(_unasDayLabel), datasets: buckets.map(b => _unasDataset(b, dayList.map(k => series[b][k] || 0), colors[b][0], colors[b][1])) },
     options: _unasChartOptions(),
+    plugins: [valueLabelsPlugin],
   });
 }
 
@@ -10369,6 +10394,7 @@ function renderUnassignmentConsolidatedChart(data) {
       ],
     },
     options: _unasChartOptions(),
+    plugins: [valueLabelsPlugin],
   });
 }
 
