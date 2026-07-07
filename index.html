@@ -2743,6 +2743,7 @@
       <button class="subtab" data-sub="call">Call View</button>
       <button class="subtab" data-sub="task">Task View</button>
       <button class="subtab" data-sub="trouble">Troubleshoot Compliance</button>
+      <button class="subtab" data-sub="gmpendingts">🎯 GM Pending TS View</button>
       <button class="subtab" data-sub="camp">📡 Campaign Track</button>
       <button class="subtab" data-sub="escalation">Escalation Compliance</button>
       <button class="subtab" data-sub="revcomp">Revival Compliance</button>
@@ -2761,6 +2762,7 @@
     <div id="sub-call"       class="subview"></div>
     <div id="sub-task"       class="subview"></div>
     <div id="sub-trouble"    class="subview"></div>
+    <div id="sub-gmpendingts" class="subview"></div>
     <div id="sub-camp"       class="subview"></div>
     <div id="sub-escalation" class="subview"></div>
     <div id="sub-revcomp"    class="subview"></div>
@@ -6126,6 +6128,107 @@ function renderTroubleshoot() {
 }
 function renderEscalation()  { document.getElementById('sub-escalation').innerHTML = `<div class="card"><h3>Escalation Compliance <span class="pending-tag">AWAITING SCHEMA</span></h3><div class="pending-card"><h4>View definition pending</h4></div></div>`; }
 
+// GM Pending TS View — a single prioritized list of every seller ELIGIBLE for
+// their next Troubleshoot (last-7d spend > threshold AND >Nd since last T/S, or
+// never had one), across the GM's book, sorted so the GM picks top-down.
+function renderGMPendingTS() {
+  const host = document.getElementById('sub-gmpendingts');
+  if (!host) return;
+  const payload = (typeof CACHED_PAYLOAD !== 'undefined' && CACHED_PAYLOAD) ? CACHED_PAYLOAD : null;
+  const ts = payload && payload.troubleshoot ? payload.troubleshoot : null;
+  if (!ts || ts.error) {
+    const errMsg = ts && ts.error ? `Fetch failed: ${String(ts.error).slice(0,120)}…` : "Loading…";
+    host.innerHTML = `<div class="card"><h3>GM Pending TS View <span class="pending-tag">TS</span></h3><div class="pending-card"><h4>${escHtml(errMsg)}</h4></div></div>`;
+    return;
+  }
+  // Map seller → GC/name from Hypercare Inputs (marketing book).
+  const sellerToGc = {};
+  if (DATA && DATA.sellers) DATA.sellers.forEach(s => { sellerToGc[s.seller_id] = { gc: s.crm_gc || "", name: s.seller_name || "" }; });
+  const selected = mktSelectedGCs();
+  const showSet = new Set(selected);
+  const narrowed = selected.length > 0 && selected.length < MKT_GCS.length;
+
+  // Eligible sellers only, across the (optionally GC-filtered) marketing book.
+  const eligible = [];
+  ts.rows.forEach(r => {
+    const meta = sellerToGc[r.seller_id];
+    const gc = meta && meta.gc ? meta.gc : "(Unmapped)";
+    if (narrowed && !showSet.has(gc)) return;          // respect GC chips
+    if (!meta && narrowed) return;                     // unmapped excluded when narrowing
+    const spend = r.last_7d_spend || 0;
+    const ds = daysSince(r.last_ts_date);              // null = never had a T/S
+    const isEligible = spend > TS_SPEND_THRESHOLD && (ds === null || ds > TS_DAYS_THRESHOLD);
+    if (!isEligible) return;
+    eligible.push({
+      ...r, gc, seller_name: r.seller_name || (meta && meta.name) || "",
+      spend, daysSince: ds,
+      overdue: ds === null ? 9999 : (ds - TS_DAYS_THRESHOLD),   // days past due (never = max)
+    });
+  });
+  // Priority: highest recent spend first, then most overdue.
+  eligible.sort((a, b) => (b.spend - a.spend) || (b.overdue - a.overdue));
+
+  const totalSpend = eligible.reduce((s, r) => s + r.spend, 0);
+  const neverCount = eligible.filter(r => r.daysSince === null).length;
+  const scopeNote = narrowed ? `${selected.map(g => DISPLAY[g] || g).join(', ')}` : 'all Marketing GCs';
+
+  const rows = eligible.map((r, i) => {
+    const display = DISPLAY[r.gc] || r.gc;
+    const lastCell = r.last_ts_date
+      ? `${escHtml(r.last_ts_date)} <span style="color:#94a3b8;font-size:11px;">(${r.daysSince}d ago)</span>`
+      : `<span class="ts-eligible" style="font-size:10px;">Never had a T/S</span>`;
+    const overdueCell = r.daysSince === null
+      ? '<span style="color:var(--danger);font-weight:700;">Never</span>'
+      : `<span style="color:${r.overdue >= 14 ? 'var(--danger)' : 'var(--warn)'};font-weight:700;">+${r.overdue}d</span>`;
+    const actionsCell = r.ts_actions
+      ? `<span class="ts-action-trigger" tabindex="0">Show Last Actions<span class="ts-action-tip">${escHtml(r.ts_actions)}</span></span>`
+      : '<span class="empty-cell">—</span>';
+    return `<tr>
+      <td class="num" style="font-weight:800;color:var(--brand);">${i + 1}</td>
+      ${sellerIdCell(r.seller_id)}
+      <td>${escHtml(r.seller_name) || '<span class="empty-cell">—</span>'}</td>
+      <td class="gc">${escHtml(display)}</td>
+      <td class="num" style="font-weight:700;color:#047857;">${fmtNum(r.spend)}</td>
+      <td style="white-space:nowrap;color:#475569;">${lastCell}</td>
+      <td class="num">${overdueCell}</td>
+      <td class="num">${r.total_ts || 0}</td>
+      <td>${actionsCell}</td>
+    </tr>`;
+  }).join('');
+
+  host.innerHTML = `<div class="card">
+    <h3>🎯 GM Pending TS View <span class="src-tag">LIVE</span></h3>
+    <p style="color:#475569;font-size:12px;margin:0 0 12px 0;line-height:1.6;">
+      Every seller <b>eligible for their next Troubleshoot</b> — last-7d spend &gt; ${fmtNum(TS_SPEND_THRESHOLD)}
+      <b>and</b> more than ${TS_DAYS_THRESHOLD} days since their last T/S (or never had one). Sorted by priority
+      (highest recent spend first, then most overdue) so you can pick top-down. Scope: ${escHtml(scopeNote)}.
+      Use the GC chips above to narrow.
+    </p>
+    <div class="sl-grid">
+      <div class="sl-card overall">
+        <div class="sl-label">Pending next T/S</div>
+        <div class="sl-value">${fmtNum(eligible.length)}</div>
+        <div class="sl-sub">${neverCount} never had a T/S</div>
+      </div>
+      <div class="sl-card">
+        <div class="sl-label">Last-7d spend at stake</div>
+        <div class="sl-value" style="color:#047857;">${fmtNum(totalSpend)}</div>
+        <div class="sl-sub">sum across eligible sellers</div>
+      </div>
+    </div>
+    <div class="tbl-wrap" style="margin-top:14px;">
+      <table class="t">
+        <thead><tr>
+          <th class="num">#</th><th>Seller ID</th><th>Seller Name</th><th>GC</th>
+          <th class="num">Last 7d Spend</th><th>Last T/S Date</th><th class="num">Overdue</th>
+          <th class="num">Total T/S</th><th>Last Actions</th>
+        </tr></thead>
+        <tbody>${rows || `<tr><td colspan="9" style="text-align:center;color:#94a3b8;padding:22px;">🎉 No sellers pending — everyone eligible has a recent T/S.</td></tr>`}</tbody>
+      </table>
+    </div>
+  </div>`;
+}
+
 let _revcompDecision = 'revived';   // 'all' | 'revived' | 'churn' | 'self_serve' | 'postponed' | ''
 function renderRevivalCompliance() {
   const host = document.getElementById('sub-revcomp');
@@ -6308,7 +6411,7 @@ function renderAll() {
   if (!DATA) return;
   document.getElementById('cnt-Marketing').textContent = MKT_GCS.length;
   renderSellerView(); renderBucketHealth(); renderCallView();
-  renderTaskView(); renderTroubleshoot(); renderEscalation();
+  renderTaskView(); renderTroubleshoot(); renderGMPendingTS(); renderEscalation();
   renderRevivalCompliance();
   renderCampaignTrack({ hostId: 'sub-camp', sellers: mktFilteredSellers(), statePrefix: 'mkt' });
   renderUnassignment();
