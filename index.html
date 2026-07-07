@@ -6152,9 +6152,9 @@ function renderGMPendingTS() {
   const eligible = [];
   ts.rows.forEach(r => {
     const meta = sellerToGc[r.seller_id];
-    const gc = meta && meta.gc ? meta.gc : "(Unmapped)";
+    if (!meta || !meta.gc) return;                     // only mapped accounts — skip unmapped
+    const gc = meta.gc;
     if (narrowed && !showSet.has(gc)) return;          // respect GC chips
-    if (!meta && narrowed) return;                     // unmapped excluded when narrowing
     const spend = r.last_7d_spend || 0;
     const ds = daysSince(r.last_ts_date);              // null = never had a T/S
     const isEligible = spend > TS_SPEND_THRESHOLD && (ds === null || ds > TS_DAYS_THRESHOLD);
