@@ -26,7 +26,8 @@ const PARSERS = {
   unassignment:  P.processUnassignmentCSV,
   dailyARR:      P.processDailyARRCSV,
   experimental:  P.processExperimentalCSV,
-  callContext:   P.processCallContextCSV,
+  // callContext intentionally EXCLUDED — its raw dump is ~110 MB and OOMs the
+  // Node build (and is too big to ship). Call History uses the live sheet.
   gcv3Dump:      P.processGCV3DumpCSV,
   dailyMetrics:  P.processDailyMetricsCSV,
 };
