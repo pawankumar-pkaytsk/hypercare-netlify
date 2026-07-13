@@ -2795,6 +2795,7 @@
       <span class="chip on" data-gc="Aanchal Agrawal">Aanchal Agrawal</span>
       <span class="chip on" data-gc="Vishal Thapa">Vishal Thapa</span>
       <span class="chip on" data-gc="Debasish Das">Debasish Das</span>
+      <span class="chip on" data-gc="Kavita Rai">Kavita Rai</span>
     </div>
     <div id="sub-rev-seller" class="subview active"></div>
     <div id="sub-rev-call"   class="subview"></div>
@@ -3123,6 +3124,7 @@ const REV_OWNER_PATTERNS = {
   "Aanchal Agrawal": ["aanchal"],
   "Vishal Thapa":    ["vishal"],
   "Debasish Das":    ["debasish", "debashish"],
+  "Kavita Rai":      ["kavita"],
 };
 const REFRESH_MS = 60 * 60 * 1000;
 const STALE_ON_FOCUS_MS = 15 * 60 * 1000;  // 15 min — bg refresh on focus only if older
@@ -3137,7 +3139,7 @@ const TS_DAYS_THRESHOLD = 7;
 const SPEND_THRESHOLD = 3540;
 const ACTIVE_DAYS = 45;
 const MKT_GCS = ["Aaruni Vaidya","Sadiya Rajgoli","Nikita S GC","Nishan Bandekar","Dev Vashisth"];
-const REV_GCS = ["Aanchal Agrawal","Vishal Thapa","Debasish Das"];
+const REV_GCS = ["Aanchal Agrawal","Vishal Thapa","Debasish Das","Kavita Rai"];
 // GCs to exclude from every revival report (data-driven views too, e.g. GC-wise
 // Revival Compliance where GC names come from card 7753).
 const REV_EXCLUDE_GCS = ["sejal negi", "faraz pasha"];
@@ -9923,7 +9925,7 @@ function weekSortKey(label) {
   return s;
 }
 // ---- Unassignment filter state ----
-const UNAS_ASSIGNEES = ["Aanchal Agrawal", "Vishal Thapa", "Debasish Das"];
+const UNAS_ASSIGNEES = ["Aanchal Agrawal", "Vishal Thapa", "Debasish Das", "Kavita Rai"];
 let unasFilterMode = "week";        // "week" | "date"
 let unasWeekFrom = "__min__";       // sentinel = oldest in sheet
 let unasWeekTo   = "__max__";       // sentinel = newest in sheet
