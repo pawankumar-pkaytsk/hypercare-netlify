@@ -2788,6 +2788,7 @@
       <button class="subtab" data-sub="rev-call">Calling View</button>
       <button class="subtab" data-sub="rev-task">Task View</button>
       <button class="subtab" data-sub="rev-eff">Efficiency View</button>
+      <button class="subtab" data-sub="rev-priority">🎯 Priority Calling</button>
     </div>
     <div class="filter-bar" id="rev-filter">
       <span class="lbl">Filter by GC:</span>
@@ -2801,6 +2802,7 @@
     <div id="sub-rev-call"   class="subview"></div>
     <div id="sub-rev-task"   class="subview"></div>
     <div id="sub-rev-eff"    class="subview"></div>
+    <div id="sub-rev-priority" class="subview"></div>
   </div>
 
   <div id="view-Daily" class="view"></div>
@@ -4804,6 +4806,7 @@ let HC_AGG = {};
 let HC_AGG_LOADED = false;
 // Revival Compliance feed (cards 9532 + 10065 → post-revival spend per seller).
 let REVIVAL_SPEND = null;
+let PRIORITY_CALLING = null;
 function _reviveDates(v) {
   if (v === null || typeof v !== "object") return v;
   if (Array.isArray(v)) { for (let i = 0; i < v.length; i++) v[i] = _reviveDates(v[i]); return v; }
@@ -4836,6 +4839,11 @@ async function loadAggregates() {
   try {
     const r = await fetch("mb/revivalSpend.json", { cache: "no-store" });
     if (r.ok) { REVIVAL_SPEND = await r.json(); window.REVIVAL_SPEND = REVIVAL_SPEND; }
+  } catch (e) {}
+  // Priority Calling feed.
+  try {
+    const r = await fetch("mb/priorityCalling.json", { cache: "no-store" });
+    if (r.ok) { PRIORITY_CALLING = await r.json(); window.PRIORITY_CALLING = PRIORITY_CALLING; }
   } catch (e) {}
   return HC_AGG;
 }
@@ -6643,10 +6651,77 @@ function revRenderEfficiencyView() {
     revRenderEfficiencyView();
   });
 }
+
+// Priority Calling — ranked list of unassigned sellers for revival outreach.
+let _pcTier = 'all';   // 'all' | '1' | '2' | '3'
+function renderPriorityCalling() {
+  const host = document.getElementById('sub-rev-priority');
+  if (!host) return;
+  const pc = (typeof PRIORITY_CALLING !== 'undefined' && PRIORITY_CALLING && PRIORITY_CALLING.sellers) ? PRIORITY_CALLING : null;
+  if (!pc) {
+    host.innerHTML = `<div class="card"><h3>🎯 Priority Calling <span class="pending-tag">PENDING SNAPSHOT</span></h3>
+      <div class="pending-card"><h4>Priority list hasn't been generated yet.</h4>
+      <p style="color:var(--text-soft);font-size:12.5px;line-height:1.6;">Built in the daily 09:30 snapshot from cards <b>1880</b>/<b>7240</b>/<b>6911</b> (weekly PNL &amp; spend/GMV), <b>10065</b> (last spend) and <b>8879</b> (ICP). It'll appear after the next refresh.</p></div></div>`;
+    return;
+  }
+  const payload = (typeof CACHED_PAYLOAD !== 'undefined' && CACHED_PAYLOAD) ? CACHED_PAYLOAD : null;
+  const allHyp = (payload && payload.allHypercareSellers) || {};
+  const nameFor = sid => {
+    const s = allHyp[sid]
+      || (REVIVAL && REVIVAL.sellers && REVIVAL.sellers.find(x => x.seller_id === sid))
+      || (DATA && DATA.sellers && DATA.sellers.find(x => x.seller_id === sid));
+    return s ? (s.seller_name || '') : '';
+  };
+  const c = pc.counts || {};
+  const list = pc.sellers.filter(r => _pcTier === 'all' || String(r.tier) === _pcTier);
+  const chip = (id, label, n) => `<button class="subtab${_pcTier===id?' active':''}" data-pc-tier="${id}">${escHtml(label)}${n!=null?` <span style="opacity:.65;font-weight:700;">${n}</span>`:''}</button>`;
+  const tierBadge = t => {
+    const m = { 1: ['#065f46', 'rgba(16,185,129,0.18)', 'T1 · profitable'], 2: ['#92400e', 'rgba(251,191,36,0.18)', 'T2 · near-profit'], 3: ['#475569', 'rgba(148,163,184,0.18)', 'T3'] };
+    const x = m[t] || m[3];
+    return `<span class="ts-not-eligible" style="background:${x[1]};color:${x[0]};border-color:transparent;">${x[2]}</span>`;
+  };
+  const fmtPnl = v => v == null ? '<span class="empty-cell">—</span>' : `<span style="color:${v > 0 ? 'var(--success)' : v > -20 ? 'var(--warn)' : 'var(--danger)'};font-weight:700;">${v}%</span>`;
+  const rows = list.map(r => `<tr>
+    <td class="num" style="font-weight:800;color:var(--brand);">${r.rank}</td>
+    ${sellerIdCell(r.sid)}
+    <td>${escHtml(nameFor(r.sid)) || '<span class="empty-cell">—</span>'}</td>
+    <td class="gc">${escHtml(r.gc) || '<span class="empty-cell">—</span>'}</td>
+    <td>${tierBadge(r.tier)}</td>
+    <td class="num">${fmtPnl(r.bestPnl)}</td>
+    <td class="num">${r.minSgmv == null ? '<span class="empty-cell">—</span>' : fmtNum(r.minSgmv)}</td>
+    <td class="num" style="color:${r.daysSince != null && r.daysSince <= 30 ? 'var(--success)' : 'var(--text-soft)'};">${r.daysSince == null ? '<span class="empty-cell">—</span>' : r.daysSince + 'd'}</td>
+    <td class="num">${r.icp == null ? '<span class="empty-cell">—</span>' : fmtNum(r.icp)}</td>
+    <td class="num" style="font-weight:600;">${Math.round((r.composite || 0) * 100)}</td>
+  </tr>`).join('');
+  const gen = pc.generatedAt ? `<span style="color:var(--text-faint);font-size:11px;font-weight:500;"> · ${escHtml(String(pc.generatedAt).slice(0,10))}</span>` : '';
+  host.innerHTML = `<div class="card">
+    <h3>🎯 Priority Calling <span class="src-tag">LIVE</span>${gen}</h3>
+    <p style="color:#475569;font-size:12px;margin:0 0 12px 0;line-height:1.6;">
+      Every unassigned seller ranked for revival outreach — call top-down.
+      <b>Tier 1</b>: had a week with PNL &gt; 0 &amp; marketing spend &gt; ${fmtNum(pc.spendMin)}.
+      <b>Tier 2</b>: a week with PNL &gt; −20 &amp; spend &gt; ${fmtNum(pc.spendMin)} (best PNL taken across blended / Facebook / Google).
+      Within a tier, ranked by a <b>composite score</b> = recency of pause + lowest spend/GMV + ICP.
+    </p>
+    <div class="subtabs" style="margin-bottom:12px;">
+      ${chip('all', 'All', pc.total)}${chip('1', 'Tier 1', c.tier1)}${chip('2', 'Tier 2', c.tier2)}${chip('3', 'Tier 3', c.tier3)}
+    </div>
+    <div class="tbl-wrap" style="max-height:68vh;">
+      <table class="t">
+        <thead><tr>
+          <th class="num">#</th><th>Seller ID</th><th>Seller Name</th><th>GC</th><th>Tier</th>
+          <th class="num">Best PNL%</th><th class="num">Spend/GMV</th><th class="num">Days Since Spend</th><th class="num">ICP</th><th class="num">Score</th>
+        </tr></thead>
+        <tbody>${rows || `<tr><td colspan="10" style="text-align:center;color:#94a3b8;padding:22px;">No sellers in this tier.</td></tr>`}</tbody>
+      </table>
+    </div>
+    <p style="color:#94a3b8;font-size:11px;margin-top:6px;">Showing ${fmtNum(list.length)} of ${fmtNum(pc.total)} unassigned sellers · Score = 0–100 (higher = call sooner).</p>
+  </div>`;
+  host.querySelectorAll('[data-pc-tier]').forEach(b => b.addEventListener('click', () => { _pcTier = b.dataset.pcTier; renderPriorityCalling(); }));
+}
 function revRenderAll() {
   if (!REVIVAL) return;
   document.getElementById('cnt-Revival').textContent = REV_GCS.length;
-  revRenderSellerView(); revRenderCallView(); revRenderTaskView(); revRenderEfficiencyView();
+  revRenderSellerView(); revRenderCallView(); revRenderTaskView(); revRenderEfficiencyView(); renderPriorityCalling();
 }
 
 // ============================================================
