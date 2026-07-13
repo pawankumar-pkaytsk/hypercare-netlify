@@ -2780,7 +2780,6 @@
     <div class="filter-bar" id="rev-filter">
       <span class="lbl">Filter by GC:</span>
       <span class="chip all on" data-gc="__all__">Select All</span>
-      <span class="chip on" data-gc="Sejal Negi">Sejal Negi</span>
       <span class="chip on" data-gc="Aanchal Agrawal">Aanchal Agrawal</span>
       <span class="chip on" data-gc="Vishal Thapa">Vishal Thapa</span>
       <span class="chip on" data-gc="Debasish Das">Debasish Das</span>
@@ -3109,7 +3108,6 @@ const MKT_OWNER_PATTERNS = {
   "Dev Vashisth":    ["dev vashisth", "vashisth"],
 };
 const REV_OWNER_PATTERNS = {
-  "Sejal Negi":      ["sejal"],
   "Aanchal Agrawal": ["aanchal"],
   "Vishal Thapa":    ["vishal"],
   "Debasish Das":    ["debasish", "debashish"],
@@ -3127,7 +3125,10 @@ const TS_DAYS_THRESHOLD = 7;
 const SPEND_THRESHOLD = 3540;
 const ACTIVE_DAYS = 45;
 const MKT_GCS = ["Aaruni Vaidya","Sadiya Rajgoli","Nikita S GC","Nishan Bandekar","Dev Vashisth"];
-const REV_GCS = ["Sejal Negi","Aanchal Agrawal","Vishal Thapa","Debasish Das"];
+const REV_GCS = ["Aanchal Agrawal","Vishal Thapa","Debasish Das"];
+// GCs to exclude from every revival report (data-driven views too, e.g. GC-wise
+// Revival Compliance where GC names come from card 7753).
+const REV_EXCLUDE_GCS = ["sejal negi", "faraz pasha"];
 const SCA_GCS = ["Sankhajit Ghosh"];
 const SCA_OWNER_PATTERNS = {
   "Sankhajit Ghosh": ["sankhajit"],
@@ -6249,7 +6250,8 @@ function renderRevivalCompliance() {
   const nameFor = sid => { const s = lookup(sid); return s ? (s.seller_name || '') : ''; };
   const gcFor   = sid => { const s = lookup(sid); return s ? (s.gc_display || s.crm_gc || '') : ''; };
 
-  const all = Object.entries(rs.bySeller).map(([sid, d]) => ({ sid, ...d }));
+  const all = Object.entries(rs.bySeller).map(([sid, d]) => ({ sid, ...d }))
+    .filter(r => !REV_EXCLUDE_GCS.includes(norm(r.gc).toLowerCase()));   // drop excluded GCs (Sejal, Faraz)
   const decCount = {}, decNot = {};
   all.forEach(r => { const k = r.decision || ''; decCount[k] = (decCount[k]||0)+1; if (!r.started) decNot[k] = (decNot[k]||0)+1; });
   const decLabel = d => d === '' ? '(no decision)' : d;
@@ -9901,7 +9903,7 @@ function weekSortKey(label) {
   return s;
 }
 // ---- Unassignment filter state ----
-const UNAS_ASSIGNEES = ["Aanchal Agrawal", "Sejal Negi", "Vishal Thapa", "Debasish Das"];
+const UNAS_ASSIGNEES = ["Aanchal Agrawal", "Vishal Thapa", "Debasish Das"];
 let unasFilterMode = "week";        // "week" | "date"
 let unasWeekFrom = "__min__";       // sentinel = oldest in sheet
 let unasWeekTo   = "__max__";       // sentinel = newest in sheet
