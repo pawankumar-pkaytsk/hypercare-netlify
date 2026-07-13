@@ -6481,13 +6481,21 @@ let revivedDetailOpen = false;
 function renderRevivedDetail(revived) {
   if (!revived || !revived.byGC) return "";
 
-  // Build the GC list, sorted by lifetime descending
+  // Build the GC list, sorted by lifetime descending. Excluded GCs (Sejal, Faraz)
+  // are dropped from every revival report.
   const gcs = Object.entries(revived.byGC)
     .map(([gc, stats]) => ({ gc, ...stats }))
+    .filter(g => !REV_EXCLUDE_GCS.includes(norm(g.gc).toLowerCase()))
     .sort((a, b) => b.lifetime - a.lifetime);
 
   // Pick the most recent 4 weeks present in the data
   const recentWeeks = revived.weekList.slice(0, 4);
+
+  // Totals recomputed from the (filtered) GC list so excluded GCs don't count.
+  const tLifetime  = gcs.reduce((s, g) => s + (g.lifetime || 0), 0);
+  const tToday     = gcs.reduce((s, g) => s + (g.today || 0), 0);
+  const tYesterday = gcs.reduce((s, g) => s + (g.yesterday || 0), 0);
+  const weekTotal  = w => gcs.reduce((s, g) => s + ((g.byWeek && g.byWeek[w.key]) || 0), 0);
 
   // Build header row
   let head = `
@@ -6516,10 +6524,10 @@ function renderRevivedDetail(revived) {
   // Totals row
   let totalRow = `<tr class="total" style="background:#f8fafc;border-top:2px solid #cbd5e1;font-weight:700;">
     <td><b>TOTAL</b></td>
-    <td class="num"><b>${revived.lifetime}</b></td>
-    <td class="num" style="color:#047857;">${revived.todayTotal}</td>
-    <td class="num" style="color:#047857;">${revived.yesterdayTotal}</td>`;
-  for (const w of recentWeeks) totalRow += `<td class="num">${w.count}</td>`;
+    <td class="num"><b>${tLifetime}</b></td>
+    <td class="num" style="color:#047857;">${tToday}</td>
+    <td class="num" style="color:#047857;">${tYesterday}</td>`;
+  for (const w of recentWeeks) totalRow += `<td class="num">${weekTotal(w)}</td>`;
   totalRow += `</tr>`;
 
   return `
@@ -6528,7 +6536,7 @@ function renderRevivedDetail(revived) {
         <button id="close-revived-detail" style="margin-left:auto;padding:4px 12px;border:1px solid #cbd5e1;background:#fff;border-radius:6px;font-size:12px;font-weight:600;color:#334155;cursor:pointer;">Hide</button>
       </h3>
       <p style="color:#475569;font-size:12px;margin:0 0 10px 0;">
-        Lifetime · Today (${revived.todayTotal}) · Yesterday (${revived.yesterdayTotal}) · plus most recent ${recentWeeks.length} weeks. GC = "Submitted By" column of the Revived Seller Log.
+        Lifetime · Today (${tToday}) · Yesterday (${tYesterday}) · plus most recent ${recentWeeks.length} weeks. GC = "Submitted By" column of the Revived Seller Log.
       </p>
       <div class="tbl-wrap" style="max-height:none;">
         <table class="t">
