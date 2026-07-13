@@ -10587,11 +10587,12 @@ function renderUnassignmentCohortChart(data) {
   const canvas = document.getElementById('unas-cohort-chart');
   const empty  = document.getElementById('unas-cohort-empty');
   if (!canvas || typeof Chart === 'undefined') return;
-  // Rows passing status/assignee/date filters + week range, grouped by week.
+  // Use the SAME universe as the week table (allFilteredRows = bucketed,
+  // non-postponed, filter-passing rows) so the cohort total for a week matches
+  // the "Total" column, then split those sellers by their decision outcome.
   const weeksSet = new Set(data.weeksInRange);
   const useWeek = (unasFilterMode === 'week');
-  const rows = (data.allRows || []).filter(r => {
-    if (!unasRowPasses(r)) return false;
+  const rows = (data.allFilteredRows || []).filter(r => {
     if (useWeek && weeksSet.size && !weeksSet.has(r.week || '(no week)')) return false;
     return r.week && r.week !== '(no week)';
   });
