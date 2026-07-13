@@ -2540,6 +2540,18 @@
   .crv-metric-label{ font-size:11.5px; font-weight:600; color:var(--text-soft); margin-bottom:6px; }
   .crv-metric-value{ font-family:"Sora","Inter",sans-serif; font-size:27px; font-weight:800; line-height:1; color:var(--text); }
   .crv-metric-sub{ font-size:10.5px; color:var(--text-faint); margin-top:5px; font-weight:600; }
+  /* per-series totals badge, top-right of a chart */
+  .chart-totals{
+    position:absolute; top:4px; right:8px; z-index:3;
+    display:flex; flex-wrap:wrap; gap:4px 12px; justify-content:flex-end; max-width:70%;
+    font-size:11.5px; font-weight:600;
+    background:var(--glass); border:1px solid var(--glass-line); border-radius:10px;
+    padding:5px 10px; -webkit-backdrop-filter:blur(8px); backdrop-filter:blur(8px);
+    box-shadow:0 6px 18px -12px rgba(0,0,0,.4);
+  }
+  .chart-totals span{ white-space:nowrap; }
+  .chart-totals b{ font-weight:800; }
+  @media (max-width:768px){ .chart-totals{ position:static; max-width:none; margin-bottom:8px; justify-content:flex-start; } }
   /* clickable numbers (Revival Compliance drilldowns) */
   .rdc{ cursor:pointer; transition:filter .15s ease, text-decoration-color .15s ease; text-decoration:underline dotted transparent; text-underline-offset:3px; }
   .rdc:hover{ filter:brightness(1.2); text-decoration:underline dotted currentColor; }
@@ -10169,6 +10181,7 @@ function renderUnassignment() {
       <h3>Hypercare Movement <span class="src-tag">DAILY</span></h3>
       <p style="color:#475569;font-size:12px;margin:0 0 10px 0;">Daily count of requests raised (by Date Created) — respects all filters above.</p>
       <div style="position:relative;height:340px;width:100%;">
+        <div class="chart-totals" id="unas-chart-totals"></div>
         <canvas id="unas-chart"></canvas>
       </div>
       <p id="unas-chart-empty" style="display:none;color:#94a3b8;font-size:12px;text-align:center;padding:14px;">No dated rows in the selected range.</p>
@@ -10177,6 +10190,7 @@ function renderUnassignment() {
       <h3>Revival Actions Movement <span class="src-tag">DAILY</span></h3>
       <p style="color:#475569;font-size:12px;margin:0 0 10px 0;">Daily count of revival outcomes by <b>decision</b> (revived · self-serve · churn), by Date Created — respects all filters above.</p>
       <div style="position:relative;height:340px;width:100%;">
+        <div class="chart-totals" id="unas-actions-totals"></div>
         <canvas id="unas-actions-chart"></canvas>
       </div>
       <p id="unas-actions-empty" style="display:none;color:#94a3b8;font-size:12px;text-align:center;padding:14px;">No decision rows in the selected range.</p>
@@ -10185,9 +10199,19 @@ function renderUnassignment() {
       <h3>Consolidated · Unassignment vs Actions <span class="src-tag">DAILY</span></h3>
       <p style="color:#475569;font-size:12px;margin:0 0 10px 0;"><b>Unassignment (raised)</b> = all requests by day · <b>Actions (decided)</b> = requests with a revival decision recorded. Click a legend item to toggle it on/off.</p>
       <div style="position:relative;height:340px;width:100%;">
+        <div class="chart-totals" id="unas-consol-totals"></div>
         <canvas id="unas-consol-chart"></canvas>
       </div>
       <p id="unas-consol-empty" style="display:none;color:#94a3b8;font-size:12px;text-align:center;padding:14px;">No dated rows in the selected range.</p>
+    </div>
+    <div class="card">
+      <h3>Weekly Unassignment Cohort → Outcomes <span class="src-tag">BY WEEK</span></h3>
+      <p style="color:#475569;font-size:12px;margin:0 0 10px 0;">For each week, how many sellers were <b>unassigned</b> that week, split by their outcome <b>till date</b> — Revived · Self-serve · Churn · Pending (still undecided). Stacked bar total = sellers unassigned that week.</p>
+      <div style="position:relative;height:360px;width:100%;">
+        <div class="chart-totals" id="unas-cohort-totals"></div>
+        <canvas id="unas-cohort-chart"></canvas>
+      </div>
+      <p id="unas-cohort-empty" style="display:none;color:#94a3b8;font-size:12px;text-align:center;padding:14px;">No weekly data in the selected range.</p>
     </div>`;
 
   // Wire counter / cell click handlers
@@ -10235,6 +10259,7 @@ function renderUnassignment() {
   renderUnassignmentChart(data, weeksRange);
   renderUnassignmentActionsChart(data);
   renderUnassignmentConsolidatedChart(data);
+  renderUnassignmentCohortChart(data);
 }
 
 function renderUnassignmentChart(data, weeksInRange) {
@@ -10282,6 +10307,12 @@ function renderUnassignmentChart(data, weeksInRange) {
     return new Date(y, m-1, d).toLocaleDateString('en-IN', { day: '2-digit', month: 'short' });
   });
   const mkData = bucket => dayList.map(k => series[bucket][k] || 0);
+  const _sum = a => a.reduce((s, v) => s + v, 0);
+  _setChartTotals('unas-chart-totals', [
+    { label: 'hypercare', color: '#818cf8', value: _sum(mkData("Hypercare")) },
+    { label: 'churn', color: '#f472b6', value: _sum(mkData("Churn")) },
+    { label: 'self_serve', color: '#22d3ee', value: _sum(mkData("Self Serve")) },
+  ]);
 
   unasChart = new Chart(canvas.getContext('2d'), {
     type: 'line',
@@ -10429,6 +10460,37 @@ function _unasDataset(label, data, line, fill) {
     pointBorderWidth: 1.5, borderWidth: 2.5, fill: !!fill,
   };
 }
+// Populate a top-right totals badge: items = [{label,color,value}].
+function _setChartTotals(id, items) {
+  const el = document.getElementById(id);
+  if (!el) return;
+  el.innerHTML = items.map(it => `<span style="color:${it.color};"><b>${fmtNum(it.value)}</b> ${escHtml(it.label)}</span>`).join('');
+}
+// Draws the grand total on top of each stacked bar (sum of that bar's segments).
+const barTotalsPlugin = {
+  id: 'barTotals',
+  afterDatasetsDraw(chart) {
+    const meta0 = chart.getDatasetMeta(0);
+    if (!meta0 || !meta0.data) return;
+    const ctx = chart.ctx;
+    ctx.save();
+    ctx.font = "800 11px Inter, sans-serif";
+    ctx.fillStyle = getComputedStyle(document.documentElement).getPropertyValue('--text') || '#0f172a';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'bottom';
+    meta0.data.forEach((_, i) => {
+      let total = 0, topY = Infinity;
+      chart.data.datasets.forEach((ds, di) => {
+        if (!chart.isDatasetVisible(di)) return;
+        total += ds.data[i] || 0;
+        const pt = chart.getDatasetMeta(di).data[i];
+        if (pt && pt.y < topY) topY = pt.y;
+      });
+      if (total > 0 && isFinite(topY)) ctx.fillText(String(total), meta0.data[i].x, topY - 4);
+    });
+    ctx.restore();
+  }
+};
 // Normalize the decision (col P) → revival outcome bucket.
 function _unasDecision(r) {
   const d = String(r.decision || '').toLowerCase();
@@ -10471,6 +10533,8 @@ function renderUnassignmentActionsChart(data) {
   if (!dayList.length) { canvas.style.display = 'none'; if (empty) empty.style.display = 'block'; return; }
   canvas.style.display = ''; if (empty) empty.style.display = 'none';
   const colors = { revived: ['#34d399', 'rgba(16,185,129,0.16)'], self_serve: ['#22d3ee', 'rgba(34,211,238,0.14)'], churn: ['#f472b6', 'rgba(244,114,182,0.14)'] };
+  const _tot = b => dayList.reduce((s, k) => s + (series[b][k] || 0), 0);
+  _setChartTotals('unas-actions-totals', buckets.map(b => ({ label: b, color: colors[b][0], value: _tot(b) })));
   unasActionsChart = new Chart(canvas.getContext('2d'), {
     type: 'line',
     data: { labels: dayList.map(_unasDayLabel), datasets: buckets.map(b => _unasDataset(b, dayList.map(k => series[b][k] || 0), colors[b][0], colors[b][1])) },
@@ -10497,6 +10561,10 @@ function renderUnassignmentConsolidatedChart(data) {
   if (unasConsolChart) { try { unasConsolChart.destroy(); } catch (e) {} unasConsolChart = null; }
   if (!dayList.length) { canvas.style.display = 'none'; if (empty) empty.style.display = 'block'; return; }
   canvas.style.display = ''; if (empty) empty.style.display = 'none';
+  _setChartTotals('unas-consol-totals', [
+    { label: 'unassignment', color: '#818cf8', value: dayList.reduce((s, k) => s + (raised[k] || 0), 0) },
+    { label: 'actions', color: '#fbbf24', value: dayList.reduce((s, k) => s + (acted[k] || 0), 0) },
+  ]);
   unasConsolChart = new Chart(canvas.getContext('2d'), {
     type: 'line',
     data: {
@@ -10508,6 +10576,68 @@ function renderUnassignmentConsolidatedChart(data) {
     },
     options: _unasChartOptions(),
     plugins: [valueLabelsPlugin],
+  });
+}
+
+// Graph 4 — weekly unassignment cohort → outcomes (stacked bar by week).
+// For each unassignment week: total sellers unassigned, split by their eventual
+// decision (revived / self-serve / churn / pending) — the "till date" outcome.
+let unasCohortChart = null;
+function renderUnassignmentCohortChart(data) {
+  const canvas = document.getElementById('unas-cohort-chart');
+  const empty  = document.getElementById('unas-cohort-empty');
+  if (!canvas || typeof Chart === 'undefined') return;
+  // Rows passing status/assignee/date filters + week range, grouped by week.
+  const weeksSet = new Set(data.weeksInRange);
+  const useWeek = (unasFilterMode === 'week');
+  const rows = (data.allRows || []).filter(r => {
+    if (!unasRowPasses(r)) return false;
+    if (useWeek && weeksSet.size && !weeksSet.has(r.week || '(no week)')) return false;
+    return r.week && r.week !== '(no week)';
+  });
+  const byWeek = {};   // week -> {revived,self_serve,churn,pending}
+  rows.forEach(r => {
+    const w = r.week;
+    const b = byWeek[w] || (byWeek[w] = { revived: 0, self_serve: 0, churn: 0, pending: 0 });
+    const dec = _unasDecision(r);
+    if (dec === 'revived') b.revived++;
+    else if (dec === 'self_serve') b.self_serve++;
+    else if (dec === 'churn') b.churn++;
+    else b.pending++;                       // postponed / blank / undecided → pending
+  });
+  const weeks = Object.keys(byWeek).sort((a, b) => weekSortKey(a).localeCompare(weekSortKey(b)));
+  if (unasCohortChart) { try { unasCohortChart.destroy(); } catch (e) {} unasCohortChart = null; }
+  if (!weeks.length) { canvas.style.display = 'none'; if (empty) empty.style.display = 'block'; return; }
+  canvas.style.display = ''; if (empty) empty.style.display = 'none';
+  const seg = k => weeks.map(w => byWeek[w][k]);
+  const totRevived = seg('revived').reduce((s, v) => s + v, 0);
+  const totSelf = seg('self_serve').reduce((s, v) => s + v, 0);
+  const totChurn = seg('churn').reduce((s, v) => s + v, 0);
+  const totPending = seg('pending').reduce((s, v) => s + v, 0);
+  _setChartTotals('unas-cohort-totals', [
+    { label: 'unassigned', color: 'var(--text)', value: totRevived + totSelf + totChurn + totPending },
+    { label: 'revived', color: '#34d399', value: totRevived },
+    { label: 'self_serve', color: '#22d3ee', value: totSelf },
+    { label: 'churn', color: '#f472b6', value: totChurn },
+    { label: 'pending', color: '#94a3b8', value: totPending },
+  ]);
+  const bar = (label, key, color) => ({ label, data: seg(key), backgroundColor: color, borderColor: color, borderWidth: 0, borderRadius: 3, stack: 'cohort', maxBarThickness: 48 });
+  const opts = _unasChartOptions();
+  opts.scales.x.stacked = true; opts.scales.y.stacked = true;
+  opts.scales.x.ticks.maxRotation = 0; opts.scales.x.ticks.minRotation = 0;
+  unasCohortChart = new Chart(canvas.getContext('2d'), {
+    type: 'bar',
+    data: {
+      labels: weeks,
+      datasets: [
+        bar('Revived', 'revived', '#34d399'),
+        bar('Self-serve', 'self_serve', '#22d3ee'),
+        bar('Churn', 'churn', '#f472b6'),
+        bar('Pending', 'pending', '#94a3b8'),
+      ],
+    },
+    options: opts,
+    plugins: [barTotalsPlugin],
   });
 }
 
