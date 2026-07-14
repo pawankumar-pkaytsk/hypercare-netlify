@@ -6711,14 +6711,14 @@ function renderPriorityCalling() {
   host.innerHTML = `<div class="card">
     <h3>🎯 Priority Calling <span class="src-tag">LIVE</span>${gen}</h3>
     <p style="color:#475569;font-size:12px;margin:0 0 12px 0;line-height:1.6;">
-      <b>Revival-team sellers</b> (assigned to a revival GC, with an ICP) ranked for outreach — <b>call top-down</b>.
+      <b>Revival-team sellers</b> (assigned to a revival GC) ranked for outreach — <b>call top-down</b>.
       <b>RPS = P1 × P2 × P3 × P4 × P5</b> (each 1–10): P1 best-week PNL% (across blended/FB/Google, spend &gt; ${fmtNum(pc.spendMin)}),
       P2 recency of pause, P3 best (lowest) week spend/GMV, P4 total spend (lower = higher), P5 ICP.
       The <span style="color:var(--text-faint);">·N</span> next to each value is that metric's band score. Ties broken by P1 &gt; P2 &gt; P3 &gt; P4 &gt; P5.
     </p>
     <div class="sl-grid" style="margin-bottom:14px;">
       <div class="sl-card overall"><div class="sl-label">Sellers to call${narrowed ? ' (filtered)' : ''}</div><div class="sl-value">${fmtNum(list.length)}</div><div class="sl-sub">revival team${gcCountStr ? ' · ' + gcCountStr : ''}</div></div>
-      <div class="sl-card"><div class="sl-label">Top RPS</div><div class="sl-value" style="color:var(--brand);">${list.length ? fmtNum(list[0].rps) : '—'}</div><div class="sl-sub">max 10⁵ = 100,000 · with ICP only</div></div>
+      <div class="sl-card"><div class="sl-label">Top RPS</div><div class="sl-value" style="color:var(--brand);">${list.length ? fmtNum(list[0].rps) : '—'}</div><div class="sl-sub">max 10⁵ = 100,000 · no ICP → P5=1</div></div>
     </div>
     <div class="tbl-wrap" style="max-height:66vh;">
       <table class="t">
@@ -6729,7 +6729,7 @@ function renderPriorityCalling() {
         <tbody>${rows || `<tr><td colspan="10" style="text-align:center;color:#94a3b8;padding:22px;">No revival-team sellers with an ICP in this filter.</td></tr>`}</tbody>
       </table>
     </div>
-    <p style="color:#94a3b8;font-size:11px;margin-top:6px;">${fmtNum(list.length)} revival-team seller${list.length===1?'':'s'} shown · RPS = P1×P2×P3×P4×P5 (higher = call sooner) · sellers without an ICP are excluded.</p>
+    <p style="color:#94a3b8;font-size:11px;margin-top:6px;">${fmtNum(list.length)} revival-team seller${list.length===1?'':'s'} shown · RPS = P1×P2×P3×P4×P5 (higher = call sooner) · no ICP → P5 = 1.</p>
   </div>`;
 }
 function revRenderAll() {
