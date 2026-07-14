@@ -6672,14 +6672,34 @@ function renderPriorityCalling() {
       || (DATA && DATA.sellers && DATA.sellers.find(x => x.seller_id === sid));
     return s ? (s.seller_name || '') : '';
   };
+  // Universe = sellers ASSIGNED TO THE REVIVAL TEAM (Inputs crm_gc ∈ REV_GCS),
+  // matching the Revival Seller View — not every unassigned seller. Falls back
+  // to card-7753 GC when the Inputs aren't loaded (cached view). Respects chips.
+  const revById = {};
+  if (REVIVAL && REVIVAL.sellers) REVIVAL.sellers.forEach(s => { revById[s.seller_id] = s.crm_gc || ''; });
+  const haveInputs = Object.keys(revById).length > 0;
+  const REVSET = new Set(REV_GCS.map(g => norm(g).toLowerCase()));
+  const _revCanon = {}; REV_GCS.forEach(g => { _revCanon[norm(g).toLowerCase()] = g; });
+  const rawGc = r => haveInputs ? (revById[r.sid] || '') : (r.gc || '');
+  const sellerGc = r => _revCanon[norm(rawGc(r)).toLowerCase()] || rawGc(r);   // canonical REV_GCS name (fixes double-spaces)
+  const isRevivalSeller = r => haveInputs ? (r.sid in revById && REVSET.has(norm(rawGc(r)).toLowerCase())) : REVSET.has(norm(r.gc).toLowerCase());
+  const selected = (typeof revSelectedGCs === 'function') ? revSelectedGCs() : REV_GCS.slice();
+  const showSet = new Set(selected);
+  const narrowed = selected.length > 0 && selected.length < REV_GCS.length;
+  const list = pc.sellers.filter(r => isRevivalSeller(r) && (!narrowed || showSet.has(sellerGc(r))));
+  // per-GC counts across the whole revival team (ignores the narrow filter).
+  const gcCounts = {};
+  pc.sellers.forEach(r => { if (isRevivalSeller(r)) { const g = sellerGc(r); gcCounts[g] = (gcCounts[g] || 0) + 1; } });
+  const gcCountStr = REV_GCS.filter(g => gcCounts[g]).map(g => `${escHtml(DISPLAY[g] || g)}: <b>${gcCounts[g]}</b>`).join(' · ');
+
   // metric value with its band score shown small: "17 ·8"
   const cell = (valHtml, score, extra) => `<td class="num"${extra || ''}>${valHtml} <span style="color:var(--text-faint);font-size:10px;font-weight:700;">·${score}</span></td>`;
   const fmtPnl = v => v == null ? '<span class="empty-cell">—</span>' : `<span style="color:${v > 0 ? 'var(--success)' : v > -20 ? 'var(--warn)' : 'var(--danger)'};font-weight:700;">${v}%</span>`;
-  const rows = pc.sellers.map(r => `<tr>
-    <td class="num" style="font-weight:800;color:var(--brand);">${r.rank}</td>
+  const rows = list.map((r, i) => `<tr>
+    <td class="num" style="font-weight:800;color:var(--brand);">${i + 1}</td>
     ${sellerIdCell(r.sid)}
     <td>${escHtml(nameFor(r.sid)) || '<span class="empty-cell">—</span>'}</td>
-    <td class="gc">${escHtml((typeof DISPLAY !== 'undefined' && DISPLAY[norm(r.gc)]) || r.gc) || '<span class="empty-cell">—</span>'}</td>
+    <td class="gc">${escHtml((typeof DISPLAY !== 'undefined' && DISPLAY[norm(sellerGc(r))]) || sellerGc(r)) || '<span class="empty-cell">—</span>'}</td>
     ${cell(fmtPnl(r.bestPnl), r.s1)}
     ${cell(r.daysSince == null ? '—' : r.daysSince + 'd', r.s2, r.daysSince != null && r.daysSince <= 12 ? ' style="color:var(--success)"' : '')}
     ${cell(r.minSgmv == null ? '—' : fmtNum(r.minSgmv), r.s3)}
@@ -6691,14 +6711,14 @@ function renderPriorityCalling() {
   host.innerHTML = `<div class="card">
     <h3>🎯 Priority Calling <span class="src-tag">LIVE</span>${gen}</h3>
     <p style="color:#475569;font-size:12px;margin:0 0 12px 0;line-height:1.6;">
-      Every unassigned seller (with an ICP) ranked for revival outreach — <b>call top-down</b>.
+      <b>Revival-team sellers</b> (assigned to a revival GC, with an ICP) ranked for outreach — <b>call top-down</b>.
       <b>RPS = P1 × P2 × P3 × P4 × P5</b> (each 1–10): P1 best-week PNL% (across blended/FB/Google, spend &gt; ${fmtNum(pc.spendMin)}),
       P2 recency of pause, P3 best (lowest) week spend/GMV, P4 total spend (lower = higher), P5 ICP.
       The <span style="color:var(--text-faint);">·N</span> next to each value is that metric's band score. Ties broken by P1 &gt; P2 &gt; P3 &gt; P4 &gt; P5.
     </p>
     <div class="sl-grid" style="margin-bottom:14px;">
-      <div class="sl-card overall"><div class="sl-label">Sellers scored</div><div class="sl-value">${fmtNum(pc.total)}</div><div class="sl-sub">${pc.discardedNoIcp != null ? fmtNum(pc.discardedNoIcp) + ' discarded (no ICP)' : 'ranked by RPS'}</div></div>
-      <div class="sl-card"><div class="sl-label">Top RPS</div><div class="sl-value" style="color:var(--brand);">${pc.sellers.length ? fmtNum(pc.sellers[0].rps) : '—'}</div><div class="sl-sub">max 10⁵ = 100,000</div></div>
+      <div class="sl-card overall"><div class="sl-label">Sellers to call${narrowed ? ' (filtered)' : ''}</div><div class="sl-value">${fmtNum(list.length)}</div><div class="sl-sub">revival team${gcCountStr ? ' · ' + gcCountStr : ''}</div></div>
+      <div class="sl-card"><div class="sl-label">Top RPS</div><div class="sl-value" style="color:var(--brand);">${list.length ? fmtNum(list[0].rps) : '—'}</div><div class="sl-sub">max 10⁵ = 100,000 · with ICP only</div></div>
     </div>
     <div class="tbl-wrap" style="max-height:66vh;">
       <table class="t">
@@ -6706,10 +6726,10 @@ function renderPriorityCalling() {
           <th class="num">#</th><th>Seller ID</th><th>Seller Name</th><th>GC</th>
           <th class="num">P1 · Best PNL%</th><th class="num">P2 · Days Since</th><th class="num">P3 · Spend/GMV</th><th class="num">P4 · Total Spend</th><th class="num">P5 · ICP</th><th class="num">RPS</th>
         </tr></thead>
-        <tbody>${rows || `<tr><td colspan="10" style="text-align:center;color:#94a3b8;padding:22px;">No sellers.</td></tr>`}</tbody>
+        <tbody>${rows || `<tr><td colspan="10" style="text-align:center;color:#94a3b8;padding:22px;">No revival-team sellers with an ICP in this filter.</td></tr>`}</tbody>
       </table>
     </div>
-    <p style="color:#94a3b8;font-size:11px;margin-top:6px;">${fmtNum(pc.total)} unassigned sellers ranked · RPS = P1×P2×P3×P4×P5 (higher = call sooner).</p>
+    <p style="color:#94a3b8;font-size:11px;margin-top:6px;">${fmtNum(list.length)} revival-team seller${list.length===1?'':'s'} shown · RPS = P1×P2×P3×P4×P5 (higher = call sooner) · sellers without an ICP are excluded.</p>
   </div>`;
 }
 function revRenderAll() {
