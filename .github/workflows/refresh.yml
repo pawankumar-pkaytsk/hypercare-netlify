@@ -1,0 +1,62 @@
+name: Refresh Hypercare snapshot
+
+# Handsfree daily refresh: pull Metabase → rebuild compact JSON → commit → Pages
+# redeploys. Runs in GitHub's cloud (no Mac needed). Also runnable on demand.
+on:
+  schedule:
+    - cron: "0 4 * * *"   # 04:00 UTC = 09:30 IST (after the 4 AM backend sync)
+  workflow_dispatch: {}
+
+# Prevent overlapping runs.
+concurrency:
+  group: hypercare-refresh
+  cancel-in-progress: false
+
+permissions:
+  contents: write
+  pages: write
+
+jobs:
+  refresh:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Pull Metabase snapshot → mb/_raw + revivalSpend + priorityCalling
+        env:
+          HC_REPO: ${{ github.workspace }}
+          METABASE_URL: ${{ secrets.METABASE_URL }}
+          METABASE_USER_EMAIL: ${{ secrets.METABASE_USER_EMAIL }}
+          METABASE_PASSWORD: ${{ secrets.METABASE_PASSWORD }}
+        run: python3 mb/snapshot.py
+
+      - name: Build compact JSON from raw
+        run: node mb/build.mjs
+
+      - name: Commit refreshed data (if changed)
+        run: |
+          git config user.name "hypercare-bot"
+          git config user.email "kickstarter@blitzscale.co"
+          git add mb/*.json mb/agg-manifest.json
+          if git diff --cached --quiet; then
+            echo "No data changes."
+          else
+            git commit -m "Daily snapshot refresh ($(date -u +%FT%TZ))"
+            git push
+            echo "Pushed refreshed snapshot."
+          fi
+
+      - name: Force a fresh Pages build (legacy builds can hang)
+        if: always()
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh api -X POST repos/${{ github.repository }}/pages/builds || true
+
