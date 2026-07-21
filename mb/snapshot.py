@@ -206,6 +206,94 @@ def build_revival_spend(url, H):
     return bySeller
 
 
+# ---- Marketing Seller View: scope now sourced from Metabase, not the sheet ----
+# Mirror of the dashboard's MKT_GCS. Removed Nishan Bandekar (left org 2026-07);
+# added Tanaya Gore + Sargunpreet Singh (joined 2026-07). Names are canonicalized
+# (card 7753 growth_consultant_name has stray double spaces).
+MKT_GCS = ["Aaruni Vaidya", "Sadiya Rajgoli", "Nikita S GC", "Dev Vashisth",
+           "Tanaya Gore", "Sargunpreet Singh"]
+
+
+def _canon(s):
+    return " ".join(str(s or "").split())
+
+
+def build_marketing_sellers(url, H):
+    """Marketing Seller View feed. Scope moved OFF the org-locked Google Inputs
+    sheet onto Metabase so it stays live + handsfree:
+      universe   = card 11011 (Best P&L Visibility - Hits: last 3 weeks spend+pnl)
+      GC mapping = card 7753  (seller_manager_mapping: growth_consultant_name etc.)
+    A seller is in scope if its 7753 GC (canonicalized) is one of MKT_GCS. The
+    old sheet filter keyed on growth_manager=='Pawan Kumar', but in 7753 the GM of
+    these GCs is 'Aaruni Vaidya' (and Sargunpreet's is 'Aakash A') — so scope is
+    defined by GC membership, NOT GM. Writes committed mb/marketingSellers.json."""
+    def pull(cid):
+        for attempt in range(4):
+            try:
+                return req(f"{url}/api/card/{cid}/query/json", 'POST', {}, H)
+            except Exception as e:
+                last = e
+                time.sleep(2 + attempt * 3)
+        raise last
+    try:
+        pnl_rows = pull(11011)   # last-3-week spend + pnl (the active universe)
+        map_rows = pull(7753)    # GC / GM / KAE mapping
+    except Exception as e:
+        print(f"[marketingSellers] FAILED: {e} (keeping previous file)")
+        return
+    mp = {}
+    for r in map_rows:
+        sid = str(r.get('seller_id') or '').strip()
+        if not sid:
+            continue
+        mp[sid] = {'gc': _canon(r.get('growth_consultant_name')),
+                   'gm': _canon(r.get('growth_manager_name')),
+                   'kae': _canon(r.get('key_account_executive_name'))}
+
+    def _pnl(v):
+        try:
+            return round(float(v), 2) if v is not None else None
+        except Exception:
+            return None
+
+    mkt, sellers, per_gc = set(MKT_GCS), [], {}
+    for r in pnl_rows:
+        sid = str(r.get('seller_id') or '').strip()
+        if not sid:
+            continue
+        m = mp.get(sid)
+        if not m or m['gc'] not in mkt:
+            continue
+        gc = m['gc']
+        w1s = _spend_num(r.get('w1_spend'))
+        w2s = _spend_num(r.get('w2_spend'))
+        w3s = _spend_num(r.get('w3_spend'))
+        sellers.append({
+            'seller_id': sid,
+            'seller_name': _canon(r.get('company')),
+            'crm_gc': gc, 'gc_display': gc,
+            'crm_gm': '' if m['gm'] in ('-', '') else m['gm'],
+            'crm_kae': '' if m['kae'] in ('-', '') else m['kae'],
+            # 11011 has no daily data; latest week (w1) maps to the dashboard's
+            # "_w20" (current week) slot, w2->_w19, w3->_w18.
+            'spend_w20': round(w1s, 2), 'spend_w19': round(w2s, 2), 'spend_w18': round(w3s, 2),
+            'pnl_w20': _pnl(r.get('w1_pnl')), 'pnl_w19': _pnl(r.get('w2_pnl')), 'pnl_w18': _pnl(r.get('w3_pnl')),
+            'today_spend': None, 'yesterday_spend': None,
+            'last_spend_date': None, 'last_spend_date_iso': None,
+            'days_since_spend': None, 'is_active_45d': True,
+            'website_url': '', 'is_live_w1': w1s > 1,
+        })
+        per_gc[gc] = per_gc.get(gc, 0) + 1
+    out = {'generatedAt': datetime.datetime.utcnow().strftime('%Y-%m-%dT%H:%M:%SZ'),
+           'weekLabels': ['Latest wk', 'Prev wk', '2 wks ago'],
+           'sellers': sellers, 'perGC': per_gc, 'total': len(sellers)}
+    path = os.path.join(REPO, "mb", "marketingSellers.json")
+    with open(path, "w") as f:
+        json.dump(out, f, separators=(',', ':'))
+    print(f"[marketingSellers] {len(sellers)} sellers across {len(per_gc)} GCs → {path}  perGC={per_gc}")
+    return out
+
+
 # ---- Priority Calling: rank unassigned sellers for revival outreach ----
 PRIORITY_SPEND_MIN = 2000   # a week "counts" for PNL tiers when marketing spend > this
 
@@ -417,6 +505,11 @@ def main():
         build_priority_calling(url, H, revival_bySeller)
     except Exception as e:
         print(f"[priorityCalling] FAILED: {e}")
+    # Marketing Seller View feed (cards 11011 + 7753 → mb/marketingSellers.json)
+    try:
+        build_marketing_sellers(url, H)
+    except Exception as e:
+        print(f"[marketingSellers] FAILED: {e}")
 
     with open(os.path.join(OUTDIR, "manifest.json"), "w") as f:
         json.dump(manifest, f, indent=2)
