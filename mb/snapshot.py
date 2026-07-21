@@ -213,9 +213,18 @@ def build_revival_spend(url, H):
 MKT_GCS = ["Aaruni Vaidya", "Sadiya Rajgoli", "Nikita S GC", "Dev Vashisth",
            "Tanaya Gore", "Sargunpreet Singh"]
 
+# Some GCs appear under name variants in card 7753 → collapse to one MKT_GCS entry.
+# Nikita Sinha shows up as "Nikita S", "Nikita S GC" and "Nikita Sinha".
+GC_ALIASES = {"Nikita S": "Nikita S GC", "Nikita Sinha": "Nikita S GC"}
+
 
 def _canon(s):
     return " ".join(str(s or "").split())
+
+
+def _gc_canon(s):
+    c = _canon(s)
+    return GC_ALIASES.get(c, c)
 
 
 def build_marketing_sellers(url, H):
@@ -241,12 +250,24 @@ def build_marketing_sellers(url, H):
     except Exception as e:
         print(f"[marketingSellers] FAILED: {e} (keeping previous file)")
         return
+    # Daily spend (card 2787: one row per seller, today/yesterday pre-summed).
+    try:
+        day_rows = pull(2787)
+    except Exception as e:
+        print(f"[marketingSellers] 2787 daily-spend pull failed ({e}); today/yesterday = null")
+        day_rows = []
+    day_by = {}
+    for r in day_rows:
+        sid = str(r.get('seller_id') or '').strip()
+        if sid:
+            day_by[sid] = {'today': _spend_num(r.get('today_spend')),
+                           'yesterday': _spend_num(r.get('yesterday_spend'))}
     mp = {}
     for r in map_rows:
         sid = str(r.get('seller_id') or '').strip()
         if not sid:
             continue
-        mp[sid] = {'gc': _canon(r.get('growth_consultant_name')),
+        mp[sid] = {'gc': _gc_canon(r.get('growth_consultant_name')),
                    'gm': _canon(r.get('growth_manager_name')),
                    'kae': _canon(r.get('key_account_executive_name'))}
 
@@ -268,17 +289,20 @@ def build_marketing_sellers(url, H):
         w1s = _spend_num(r.get('w1_spend'))
         w2s = _spend_num(r.get('w2_spend'))
         w3s = _spend_num(r.get('w3_spend'))
+        dd = day_by.get(sid)
         sellers.append({
             'seller_id': sid,
             'seller_name': _canon(r.get('company')),
             'crm_gc': gc, 'gc_display': gc,
             'crm_gm': '' if m['gm'] in ('-', '') else m['gm'],
             'crm_kae': '' if m['kae'] in ('-', '') else m['kae'],
-            # 11011 has no daily data; latest week (w1) maps to the dashboard's
-            # "_w20" (current week) slot, w2->_w19, w3->_w18.
+            # 11011 weekly: latest week (w1) maps to the dashboard's "_w20"
+            # (current week) slot, w2->_w19, w3->_w18.
             'spend_w20': round(w1s, 2), 'spend_w19': round(w2s, 2), 'spend_w18': round(w3s, 2),
             'pnl_w20': _pnl(r.get('w1_pnl')), 'pnl_w19': _pnl(r.get('w2_pnl')), 'pnl_w18': _pnl(r.get('w3_pnl')),
-            'today_spend': None, 'yesterday_spend': None,
+            # Daily spend from card 2787 (null if the seller has no 2787 row).
+            'today_spend': round(dd['today'], 2) if dd else None,
+            'yesterday_spend': round(dd['yesterday'], 2) if dd else None,
             'last_spend_date': None, 'last_spend_date_iso': None,
             'days_since_spend': None, 'is_active_45d': True,
             'website_url': '', 'is_live_w1': w1s > 1,

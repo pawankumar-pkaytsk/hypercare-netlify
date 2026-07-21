@@ -3078,7 +3078,7 @@ const SHEETS_FAILED_PLACEHOLDER = /^FILL_IN_/;
 // Bumped on every push so the UI can show which build the user is actually
 // running. If this string doesn't match the latest deploy, the browser is
 // serving a cached/older version.
-const BUILD_VERSION = "2026-07-21 · Marketing scope from Metabase (11011+7753) · GCs: +Tanaya +Sargunpreet −Nishan";
+const BUILD_VERSION = "2026-07-21b · Marketing from Metabase (11011+7753, daily 2787) · Nikita variants aliased";
 // Optional convenience: persist file IDs to localStorage so you don't have to
 // edit the file every redeploy. If a value is set in localStorage it takes
 // precedence over the hard-coded one above. See window.hcSetSheetId() helper.
@@ -4338,10 +4338,9 @@ function buildDashboardData(hyp, calls, revived, tasks, troubleshoot, chatReply,
   hyp.revivalSellers.forEach(attach);
   (hyp.scalingSellers || []).forEach(attach);
 
-  // Marketing "live" = spent in the latest week (spend_w20 > 1). Data now comes
-  // from Metabase (11011), which has no daily spend, so we use the latest-week
-  // spend instead of the old "yesterday spend > 1".
-  const mktLive = s => (s.spend_w20 || 0) > 1;
+  // Marketing "live" = spent yesterday (yesterday_spend > 1). Daily spend now
+  // comes from Metabase card 2787 (per-seller today/yesterday spend).
+  const mktLive = s => (s.yesterday_spend || 0) > 1;
   const mktGcSummary = {};
   for (const gc of MKT_GCS) {
     const gcRows = hyp.marketingSellers.filter(s => s.crm_gc === gc);
@@ -5190,7 +5189,7 @@ function renderSpendLiveCards() {
   let cards = "";
   if (allSelected) {
     const o = DATA.overall;
-    cards += `<div class="sl-card overall"><div class="sl-label">All Marketing — Spend/Live</div><div class="sl-value">${o.spend_live_pct}<span class="pct">%</span></div><div class="sl-sub">${o.live_yesterday_count} live (latest wk) / ${o.total_assigned} assigned</div><div class="sl-bar"><span style="width:${Math.min(o.spend_live_pct,100)}%"></span></div></div>`;
+    cards += `<div class="sl-card overall"><div class="sl-label">All Marketing — Spend/Live</div><div class="sl-value">${o.spend_live_pct}<span class="pct">%</span></div><div class="sl-sub">${o.live_yesterday_count} live yesterday / ${o.total_assigned} assigned</div><div class="sl-bar"><span style="width:${Math.min(o.spend_live_pct,100)}%"></span></div></div>`;
   }
   for (const gc of gcs) {
     const g = DATA.gc_summary[gc];
@@ -5206,7 +5205,7 @@ function renderSellerView() {
   const tbl = `<div class="tbl-wrap"><table class="t">
     <thead><tr><th>Seller ID</th><th>Seller Name</th><th>GC</th>
     <th>Account Type</th><th class="num">Remaining Funds</th>
-    <th class="num">Spend (latest wk)</th><th class="num">PNL (latest wk)</th>
+    <th class="num">Today</th><th class="num">Yesterday</th>
     <th>Last Spend Date</th><th class="num">Days Since</th>
     <th>Last Call Date</th><th class="num">Days Since Call</th>
     <th>Last GC Reply</th><th class="num">Days Since Reply</th></tr></thead>
@@ -5247,8 +5246,8 @@ function renderSellerView() {
         <td class="gc">${s.gc_display}</td>
         <td>${acctType}</td>
         <td class="num" style="font-weight:600;color:${fundsColor};">${fundsVal}${fundsFlag}</td>
-        <td class="num">${fmtNum(s.spend_w20)}</td>
-        <td class="num">${fmtPNL(s.pnl_w20)}</td>
+        <td class="num">${fmtNum(s.today_spend)}</td>
+        <td class="num">${fmtNum(s.yesterday_spend)}</td>
         <td style="color:#475569;white-space:nowrap;">${lastSpend || '<span class="empty-cell">—</span>'}</td>
         <td class="num" style="color:${col};font-weight:600;">${d === null ? '—' : d}</td>
         <td style="color:#475569;white-space:nowrap;">${lastCall || '<span class="empty-cell">No calls</span>'}</td>
@@ -5260,7 +5259,7 @@ function renderSellerView() {
   document.getElementById('sub-seller').innerHTML = `
     <div class="card">
       <h3>Seller View <span class="src-tag">LIVE · Metabase</span></h3>
-      <p style="color:#475569;font-size:12px;font-weight:600;margin:0 0 8px 0;">Scope: HITS sellers mapped to a Hypercare GC (cards 11011 + 7753). Spend/Live = sellers with latest-week spend &gt; 1 ÷ total assigned × 100.</p>
+      <p style="color:#475569;font-size:12px;font-weight:600;margin:0 0 8px 0;">Scope: HITS sellers mapped to a Hypercare GC (cards 11011 + 7753; daily spend from 2787). Spend/Live = sellers with yesterday spend &gt; 1 ÷ total assigned × 100.</p>
       ${renderSpendLiveCards()}
       ${tbl}
       <p style="color:#94a3b8;font-size:11px;margin-top:6px;">${sellers.length} active sellers shown.</p>
@@ -5286,11 +5285,12 @@ function renderBucketHealth() {
   const wL = DATA.week_labels || ['W-1','W-2','W-3'];
   const tbl = `<div class="tbl-wrap"><table class="t"><thead><tr>
     <th>Seller ID</th><th>Seller Name</th><th>GC</th>
+    <th class="num">Today</th><th class="num">Yesterday</th>
     <th class="num">PNL ${wL[0]}</th><th class="num">Spend ${wL[0]}</th>
     <th class="num">PNL ${wL[1]}</th><th class="num">Spend ${wL[1]}</th>
     <th class="num">PNL ${wL[2]}</th><th class="num">Spend ${wL[2]}</th>
     </tr></thead><tbody>
-    ${sellers.map(s => `<tr>${sellerIdCell(s.seller_id)}<td>${s.seller_name || '<span class="empty-cell">—</span>'}</td><td class="gc">${s.gc_display}</td><td class="num">${fmtPNL(s.pnl_w20)}</td><td class="num">${fmtNum(s.spend_w20)}</td><td class="num">${fmtPNL(s.pnl_w19)}</td><td class="num">${fmtNum(s.spend_w19)}</td><td class="num">${fmtPNL(s.pnl_w18)}</td><td class="num">${fmtNum(s.spend_w18)}</td></tr>`).join('')}
+    ${sellers.map(s => `<tr>${sellerIdCell(s.seller_id)}<td>${s.seller_name || '<span class="empty-cell">—</span>'}</td><td class="gc">${s.gc_display}</td><td class="num">${fmtNum(s.today_spend)}</td><td class="num">${fmtNum(s.yesterday_spend)}</td><td class="num">${fmtPNL(s.pnl_w20)}</td><td class="num">${fmtNum(s.spend_w20)}</td><td class="num">${fmtPNL(s.pnl_w19)}</td><td class="num">${fmtNum(s.spend_w19)}</td><td class="num">${fmtPNL(s.pnl_w18)}</td><td class="num">${fmtNum(s.spend_w18)}</td></tr>`).join('')}
     </tbody></table></div>`;
   document.getElementById('sub-bucket').innerHTML = `
     <div class="card">
