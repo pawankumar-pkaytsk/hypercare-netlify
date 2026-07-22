@@ -3078,7 +3078,7 @@ const SHEETS_FAILED_PLACEHOLDER = /^FILL_IN_/;
 // Bumped on every push so the UI can show which build the user is actually
 // running. If this string doesn't match the latest deploy, the browser is
 // serving a cached/older version.
-const BUILD_VERSION = "2026-07-21b · Marketing from Metabase (11011+7753, daily 2787) · Nikita variants aliased";
+const BUILD_VERSION = "2026-07-21c · Bucket Health excludes 0% latest-wk PNL sellers";
 // Optional convenience: persist file IDs to localStorage so you don't have to
 // edit the file every redeploy. If a value is set in localStorage it takes
 // precedence over the hard-coded one above. See window.hcSetSheetId() helper.
@@ -5275,7 +5275,11 @@ const BUCKETS = {
 };
 function renderBucketHealth() {
   if (!DATA) return;
-  const all = mktFilteredSellers();
+  // Exclude sellers whose latest-week PNL is exactly 0% — spend is present but
+  // PNL wasn't computed, so it's not a real profitability signal and shouldn't
+  // be bucketed. (Null PNL sellers already render as "—" and fail the numeric
+  // bucket predicates.)
+  const all = mktFilteredSellers().filter(s => s.pnl_w20 !== 0);
   let sellers = all;
   if (activeBucketFilter !== "__all__") sellers = all.filter(BUCKETS[activeBucketFilter]);
   const counts = { "__all__": all.length };
