@@ -3078,7 +3078,7 @@ const SHEETS_FAILED_PLACEHOLDER = /^FILL_IN_/;
 // Bumped on every push so the UI can show which build the user is actually
 // running. If this string doesn't match the latest deploy, the browser is
 // serving a cached/older version.
-const BUILD_VERSION = "2026-07-21c · Bucket Health excludes 0% latest-wk PNL sellers";
+const BUILD_VERSION = "2026-08-03 · real ISO week labels + stale-week banner + marketing-only refresh";
 // Optional convenience: persist file IDs to localStorage so you don't have to
 // edit the file every redeploy. If a value is set in localStorage it takes
 // precedence over the hard-coded one above. See window.hcSetSheetId() helper.
@@ -5182,6 +5182,48 @@ function updateMetaBar() {
 function mktSelectedGCs() { return [...document.querySelectorAll('#mkt-filter .chip:not(.all)')].filter(c => c.classList.contains('on')).map(c => c.dataset.gc); }
 function mktFilteredSellers() { if (!DATA) return []; const gcs = mktSelectedGCs(); return DATA.sellers.filter(s => gcs.includes(s.crm_gc)); }
 
+// ---- Marketing weekly-data freshness -------------------------------------
+// Card 11011's w1/w2/w3 columns are defined off CURRENT_DATE() (UTC), so they
+// roll forward every Monday 00:00 UTC. If the snapshot predates a rollover, its
+// "latest week" is actually last week — which silently reads as wrong PNL/spend.
+// We stamp each snapshot with the ISO week it actually covers (weekKeys) and
+// compare against the current expected week here.
+function isoWeekKeyUTC(d) {
+  const t = new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate()));
+  const day = t.getUTCDay() || 7;          // Mon=1 … Sun=7
+  t.setUTCDate(t.getUTCDate() + 4 - day);  // ISO: nearest Thursday
+  const year = t.getUTCFullYear();
+  const yearStart = new Date(Date.UTC(year, 0, 1));
+  const week = Math.ceil(((t - yearStart) / 86400000 + 1) / 7);
+  return `${year}${String(week).padStart(2, "0")}`;
+}
+function mktWeekStale() {
+  const mb = (typeof MKT_SELLERS_MB !== "undefined") ? MKT_SELLERS_MB : null;
+  if (!mb || !Array.isArray(mb.weekKeys) || !mb.weekKeys.length) return null;
+  const expect = isoWeekKeyUTC(new Date(Date.now() - 7 * 86400000));
+  const have = String(mb.weekKeys[0]);
+  if (have === expect) return null;
+  let behind = null;
+  if (mb.weekStarts && mb.weekStarts[0]) {
+    const snapStart = Date.parse(mb.weekStarts[0] + "T00:00:00Z");
+    const ref = new Date(Date.now() - 7 * 86400000);
+    const cur = new Date(Date.UTC(ref.getUTCFullYear(), ref.getUTCMonth(), ref.getUTCDate()));
+    cur.setUTCDate(cur.getUTCDate() - ((cur.getUTCDay() || 7) - 1));
+    behind = Math.round((cur.getTime() - snapStart) / (7 * 86400000));
+  }
+  return { have, expect, behind, label: (mb.weekLabels && mb.weekLabels[0]) || have };
+}
+function mktStaleBanner() {
+  const st = mktWeekStale();
+  if (!st) return "";
+  const n = (st.behind && st.behind > 0) ? st.behind : 1;
+  return `<div style="display:flex;gap:8px;align-items:flex-start;background:#fffbeb;border:1px solid #fcd34d;color:#92400e;border-radius:10px;padding:9px 12px;margin:0 0 10px 0;font-size:12px;font-weight:600;line-height:1.45;">
+    <span style="font-size:14px;line-height:1.2;">⚠️</span>
+    <span>Weekly PNL/spend is <b>${n} week${n > 1 ? "s" : ""} behind</b> — these columns are <b>${escHtml(st.label)}</b>, not the current week.
+    Card 11011's week windows roll every Monday 00:00 UTC; the snapshot hasn't refreshed since. It self-corrects on the next refresh (Refresh now won't fix it — the snapshot is rebuilt server-side).</span>
+  </div>`;
+}
+
 function renderSpendLiveCards() {
   if (!DATA) return "";
   const gcs = mktSelectedGCs();
@@ -5260,6 +5302,7 @@ function renderSellerView() {
     <div class="card">
       <h3>Seller View <span class="src-tag">LIVE · Metabase</span></h3>
       <p style="color:#475569;font-size:12px;font-weight:600;margin:0 0 8px 0;">Scope: HITS sellers mapped to a Hypercare GC (cards 11011 + 7753; daily spend from 2787). Spend/Live = sellers with yesterday spend &gt; 1 ÷ total assigned × 100.</p>
+      ${mktStaleBanner()}
       ${renderSpendLiveCards()}
       ${tbl}
       <p style="color:#94a3b8;font-size:11px;margin-top:6px;">${sellers.length} active sellers shown.</p>
@@ -5299,6 +5342,7 @@ function renderBucketHealth() {
   document.getElementById('sub-bucket').innerHTML = `
     <div class="card">
       <h3>Bucket Health <span class="src-tag">LIVE</span></h3>
+      ${mktStaleBanner()}
       <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-bottom:10px;">
         <label style="font-size:12px;color:#475569;font-weight:600;">Bucket filter:</label>
         <select id="bucket-filter" style="padding:6px 10px;border:1px solid #cbd5e1;border-radius:8px;background:#fff;font-size:13px;font-weight:600;color:#0f172a;cursor:pointer;">${dd}</select>

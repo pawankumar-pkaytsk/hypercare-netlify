@@ -227,6 +227,22 @@ def _gc_canon(s):
     return GC_ALIASES.get(c, c)
 
 
+# Card 11011 defines its week columns off CURRENT_DATE() (UTC in BigQuery):
+#   w1 = ISO week of (today - 1 week), w2 = -2 weeks, w3 = -3 weeks
+# so the columns ROLL FORWARD every Monday 00:00 UTC. We stamp the actual ISO
+# week identity of each column into the snapshot; the dashboard labels its
+# columns with these and warns when they no longer match the current week
+# (i.e. the snapshot predates a Monday rollover) instead of silently showing
+# last week's numbers as "latest".
+def _iso_week_meta(weeks_ago):
+    d = datetime.datetime.utcnow().date() - datetime.timedelta(weeks=weeks_ago)
+    y, w, _ = d.isocalendar()
+    monday = d - datetime.timedelta(days=d.isoweekday() - 1)
+    return {"key": f"{y}{w:02d}",
+            "label": f"W{w} · {monday.strftime('%-d %b')}",
+            "start": monday.isoformat()}
+
+
 def build_marketing_sellers(url, H):
     """Marketing Seller View feed. Scope moved OFF the org-locked Google Inputs
     sheet onto Metabase so it stays live + handsfree:
@@ -308,8 +324,12 @@ def build_marketing_sellers(url, H):
             'website_url': '', 'is_live_w1': w1s > 1,
         })
         per_gc[gc] = per_gc.get(gc, 0) + 1
+    wk = [_iso_week_meta(1), _iso_week_meta(2), _iso_week_meta(3)]
     out = {'generatedAt': datetime.datetime.utcnow().strftime('%Y-%m-%dT%H:%M:%SZ'),
-           'weekLabels': ['Latest wk', 'Prev wk', '2 wks ago'],
+           # Real ISO week identity of the w20/w19/w18 columns (see _iso_week_meta).
+           'weekKeys': [w['key'] for w in wk],
+           'weekLabels': [w['label'] for w in wk],
+           'weekStarts': [w['start'] for w in wk],
            'sellers': sellers, 'perGC': per_gc, 'total': len(sellers)}
     path = os.path.join(REPO, "mb", "marketingSellers.json")
     with open(path, "w") as f:
@@ -481,6 +501,15 @@ def main():
               {"username": email, "password": pw},
               {'Content-Type': 'application/json'})['id']
     H = {'Content-Type': 'application/json', 'X-Metabase-Session': tok}
+
+    # Marketing-only mode: refresh just mb/marketingSellers.json (cards 11011 +
+    # 7753 + 2787). Cheap enough to run several times a day so the Monday ISO-week
+    # rollover of card 11011 is picked up within a couple of hours instead of
+    # waiting for the once-daily full pull.
+    if '--marketing-only' in sys.argv:
+        os.makedirs(OUTDIR, exist_ok=True)
+        build_marketing_sellers(url, H)
+        return
 
     os.makedirs(OUTDIR, exist_ok=True)
     manifest = {

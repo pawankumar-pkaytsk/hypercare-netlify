@@ -1,0 +1,61 @@
+name: Refresh marketing snapshot
+
+# Lightweight companion to refresh.yml. Rebuilds ONLY mb/marketingSellers.json
+# (cards 11011 + 7753 + 2787, ~20s) so the Marketing views recover quickly from
+# card 11011's ISO-week rollover, which happens every Monday 00:00 UTC. The
+# once-daily full refresh alone left the dashboard showing last week's PNL/spend
+# for most of Monday morning IST.
+on:
+  schedule:
+    - cron: "0 1 * * *"    # 06:30 IST — right after the Monday 00:00 UTC rollover
+    - cron: "0 7 * * *"    # 12:30 IST
+    - cron: "0 13 * * *"   # 18:30 IST
+  workflow_dispatch: {}
+
+# Share the full-refresh lock so the two jobs never race on push.
+concurrency:
+  group: hypercare-refresh
+  cancel-in-progress: false
+
+permissions:
+  contents: write
+  pages: write
+
+jobs:
+  refresh-marketing:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Rebuild marketingSellers.json (cards 11011 + 7753 + 2787)
+        env:
+          HC_REPO: ${{ github.workspace }}
+          METABASE_URL: ${{ secrets.METABASE_URL }}
+          METABASE_USER_EMAIL: ${{ secrets.METABASE_USER_EMAIL }}
+          METABASE_PASSWORD: ${{ secrets.METABASE_PASSWORD }}
+        run: python3 mb/snapshot.py --marketing-only
+
+      - name: Commit if changed
+        run: |
+          git config user.name "hypercare-bot"
+          git config user.email "kickstarter@blitzscale.co"
+          git add mb/marketingSellers.json
+          if git diff --cached --quiet; then
+            echo "No marketing data changes."
+          else
+            git commit -m "Marketing snapshot refresh ($(date -u +%FT%TZ))"
+            # The full-refresh job may have pushed while we were querying.
+            git pull --rebase origin main
+            git push
+            echo "Pushed refreshed marketing snapshot."
+          fi
+
+      - name: Force a fresh Pages build (legacy builds can hang)
+        if: always()
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh api -X POST repos/${{ github.repository }}/pages/builds || true
