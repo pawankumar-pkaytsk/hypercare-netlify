@@ -2652,6 +2652,7 @@
     <button class="tab" data-team="Daily" title="Daily Report"><i class="ph ph-sun-horizon sd-navico"></i><span class="sd-navlbl">Daily Report</span><span class="count" id="cnt-Daily"></span></button>
     <button class="tab" data-team="CallHistory" title="Call History"><i class="ph ph-phone-call sd-navico"></i><span class="sd-navlbl">Call History</span><span class="count" id="cnt-CallHistory"></span></button>
     <button class="tab" data-team="HITSRecovery" title="HITS Recovery"><i class="ph ph-target sd-navico"></i><span class="sd-navlbl">HITS Recovery</span><span class="count" id="cnt-HITSRecovery"></span></button>
+    <button class="tab" data-team="HypercareAnalysis" title="Hypercare Analysis"><i class="ph ph-chart-line-up sd-navico"></i><span class="sd-navlbl">Hypercare Analysis</span><span class="count" id="cnt-HypercareAnalysis"></span></button>
     <button class="tab" data-team="Creatives" title="Creatives Report"><i class="ph ph-palette sd-navico"></i><span class="sd-navlbl">Creatives Report</span><span class="count" id="cnt-Creatives"></span></button>
   </div>
 
@@ -2703,6 +2704,12 @@
         <div class="home-tile-icon"><i class="ph ph-target"></i></div>
         <div class="home-tile-title">HITS Recovery</div>
         <div class="home-tile-sub">3 cohorts · Bucket health · Funnel · Revive · Attention list</div>
+        <div class="home-tile-arrow">→</div>
+      </button>
+      <button class="home-tile" data-team="HypercareAnalysis" style="--tile-glow:rgba(56,189,248,0.45);">
+        <div class="home-tile-icon"><i class="ph ph-chart-line-up"></i></div>
+        <div class="home-tile-title">Hypercare Analysis</div>
+        <div class="home-tile-sub">Spend/Live · 3K Spend/Live · Spend/GMV trends · DoD &amp; WoW · Revived sellers</div>
         <div class="home-tile-arrow">→</div>
       </button>
       <button class="home-tile" data-team="Creatives" style="--tile-glow:rgba(244,114,182,0.45);">
@@ -2811,6 +2818,7 @@
   <div id="view-CallHistory" class="view"></div>
 
   <div id="view-HITSRecovery" class="view"></div>
+  <div id="view-HypercareAnalysis" class="view"></div>
   <div id="view-Creatives" class="view"></div>
 
   <p class="footer-note">
@@ -3078,7 +3086,7 @@ const SHEETS_FAILED_PLACEHOLDER = /^FILL_IN_/;
 // Bumped on every push so the UI can show which build the user is actually
 // running. If this string doesn't match the latest deploy, the browser is
 // serving a cached/older version.
-const BUILD_VERSION = "2026-08-04 · verified deploy from aarunivaidya machine";
+const BUILD_VERSION = "2026-08-04 · Hypercare Analysis view (DoD/WoW trends + revived sellers)";
 // Optional convenience: persist file IDs to localStorage so you don't have to
 // edit the file every redeploy. If a value is set in localStorage it takes
 // precedence over the hard-coded one above. See window.hcSetSheetId() helper.
@@ -4815,6 +4823,11 @@ let PRIORITY_CALLING = null;
 // Marketing Seller View scope, sourced from Metabase (cards 11011 + 7753) instead
 // of the org-locked Google Inputs sheet — see mb/marketingSellers.json.
 let MKT_SELLERS_MB = null;
+// Hypercare Analysis feeds. HC_ANALYSIS is the APPEND-ONLY daily trend history
+// (mb/analysisHistory.json) — cards 2787/7669 keep no history and 10773 is a
+// rolling ~31-day window, so this file is the only durable record of past days.
+let HC_ANALYSIS = null;
+let HC_REVIVED = null;
 function _reviveDates(v) {
   if (v === null || typeof v !== "object") return v;
   if (Array.isArray(v)) { for (let i = 0; i < v.length; i++) v[i] = _reviveDates(v[i]); return v; }
@@ -4858,6 +4871,15 @@ async function loadAggregates() {
   try {
     const r = await fetch("mb/marketingSellers.json", { cache: "no-store" });
     if (r.ok) { MKT_SELLERS_MB = await r.json(); window.MKT_SELLERS_MB = MKT_SELLERS_MB; }
+  } catch (e) {}
+  // Hypercare Analysis: accumulating trend history + revived-seller detail.
+  try {
+    const r = await fetch("mb/analysisHistory.json", { cache: "no-store" });
+    if (r.ok) { HC_ANALYSIS = await r.json(); window.HC_ANALYSIS = HC_ANALYSIS; }
+  } catch (e) {}
+  try {
+    const r = await fetch("mb/revivedSellers.json", { cache: "no-store" });
+    if (r.ok) { HC_REVIVED = await r.json(); window.HC_REVIVED = HC_REVIVED; }
   } catch (e) {}
   return HC_AGG;
 }
@@ -10952,10 +10974,324 @@ function exportUnassignmentCSV(rows, bucket, weekFilter) {
   setTimeout(() => URL.revokeObjectURL(url), 1000);
 }
 
+// ===========================================================================
+//                          HYPERCARE ANALYSIS
+// ---------------------------------------------------------------------------
+// Trend view over mb/analysisHistory.json (append-only daily history) plus the
+// revived-seller detail table from mb/revivedSellers.json.
+//
+// READ THIS BEFORE CHANGING THE NUMBERS:
+//   * The denominator is the FULL hypercare roster from card 12477 (~538
+//     sellers), NOT the ~249-seller active universe the Marketing Seller View
+//     uses (card 11011). Same metric name, different base — this view reads
+//     materially lower on purpose. Don't "fix" it to match Marketing.
+//   * The trend LINES come from card 10773 (day-wise spend) because it is the
+//     only source with history. The KPI TILES come from the cards these metrics
+//     are actually defined on (2787 for spend/live, 7669 for the 3k cut). Those
+//     two agree to ~1pp in aggregate but genuinely disagree per seller, so they
+//     are shown side by side rather than blended into one series.
+// ===========================================================================
+let hcaGran = 'dod';        // 'dod' (day-on-day) | 'wow' (week-on-week)
+let hcaScope = 'team';      // 'team' (one aggregate line) | 'gc' (one line per GC)
+let hcaCharts = {};         // chart id -> Chart instance (destroyed on re-render)
+let hcaRevBy = '__all__';   // revived-sellers table: filter on "revived by"
+
+const HCA_METRICS = [
+  { key: 'live', id: 'hca-live', title: 'Spend / Live Trend',
+    note: 'Sellers who spent more than ₹1 that day ÷ assigned sellers.', color: '#22d3ee' },
+  { key: 'live3k', id: 'hca-3k', title: '3K Spend / Live Trend',
+    note: 'Sellers whose trailing-7-day spend crossed ₹3,540 ÷ assigned sellers.', color: '#a78bfa' },
+  { key: 'spendGmv', id: 'hca-sgmv', title: 'Spend / GMV — weighted average',
+    note: 'Σ spend ÷ Σ GMV across running sellers (trailing-7-day spend > ₹3,540). A true weighted average, not a mean of per-seller ratios.', color: '#f59e0b' },
+];
+const HCA_GC_COLORS = ['#22d3ee', '#a78bfa', '#f472b6', '#34d399', '#fbbf24', '#60a5fa', '#fb7185'];
+
+function _hcaWeekLabel(key, isoDate) {
+  const d = new Date(isoDate + 'T00:00:00Z');
+  const dow = d.getUTCDay() || 7;
+  const mon = new Date(d.getTime() - (dow - 1) * 86400000);
+  return 'W' + String(key).slice(4) + ' · ' + mon.toLocaleDateString('en-GB', { day: 'numeric', month: 'short', timeZone: 'UTC' });
+}
+
+// Bucket the stored days into either single days or ISO weeks, then aggregate
+// each group's metric ACROSS the bucket from raw counts/totals — never by
+// averaging percentages (ratio of sums ≠ mean of ratios).
+function _hcaSeries(metricKey, groups) {
+  const h = HC_ANALYSIS;
+  if (!h || !h.days) return { labels: [], series: [] };
+  const days = Object.keys(h.days).sort();
+  if (!days.length) return { labels: [], series: [] };
+  const buckets = [];        // [{label, days:[iso]}]
+  if (hcaGran === 'wow') {
+    const seen = new Map();
+    for (const d of days) {
+      const k = isoWeekKeyUTC(new Date(d + 'T00:00:00Z'));
+      if (!seen.has(k)) { seen.set(k, { label: _hcaWeekLabel(k, d), days: [] }); buckets.push(seen.get(k)); }
+      seen.get(k).days.push(d);
+    }
+  } else {
+    for (const d of days) buckets.push({ label: fmtDDMMYY(d) || d, days: [d] });
+  }
+  const series = groups.map(g => ({ key: g.key, label: g.label, data: [] }));
+  // live3k and spendGmv both qualify sellers on a TRAILING 7-day spend window, so
+  // the first few stored days (which have less than 7 days of lookback) understate
+  // them badly — plot them as gaps rather than as real dips.
+  const needsWindow = (metricKey === 'live3k' || metricKey === 'spendGmv');
+  const usable = d => !(needsWindow && h.days[d].partialWindow);
+  for (const b of buckets) {
+    const bd = b.days.filter(usable);
+    for (let i = 0; i < groups.length; i++) {
+      const gk = groups[i].key;
+      let val = null;
+      if (metricKey === 'spendGmv') {
+        let s = 0, gm = 0, any = false;
+        for (const d of bd) {
+          const r = (h.days[d].spendGmv || {})[gk];
+          if (r && typeof r.spend === 'number' && typeof r.gmv === 'number' && r.gmv > 0) { s += r.spend; gm += r.gmv; any = true; }
+        }
+        val = any && gm > 0 ? +(100 * s / gm).toFixed(2) : null;
+      } else {
+        let n = 0, as = 0, any = false;
+        for (const d of bd) {
+          const r = (h.days[d][metricKey] || {})[gk];
+          if (r && typeof r.n === 'number' && r.assigned) { n += r.n; as += r.assigned; any = true; }
+        }
+        val = any && as > 0 ? +(100 * n / as).toFixed(2) : null;
+      }
+      series[i].data.push(val);
+    }
+  }
+  return { labels: buckets.map(b => b.label), series };
+}
+
+function _hcaGroups() {
+  const h = HC_ANALYSIS;
+  if (!h) return [];
+  if (hcaScope === 'gc') return (h.gcs || []).map(g => ({ key: g, label: (typeof DISPLAY !== 'undefined' && DISPLAY[g]) || g }));
+  return [{ key: h.teamKey || '__team__', label: 'Hypercare Team' }];
+}
+
+function _hcaChartOptions() {
+  return {
+    responsive: true, maintainAspectRatio: false,
+    interaction: { mode: 'index', intersect: false },
+    plugins: {
+      legend: { position: 'top', labels: { color: '#c1cad9', usePointStyle: true, padding: 14, font: { size: 12, weight: 600, family: 'Inter' } } },
+      tooltip: {
+        backgroundColor: 'rgba(14,20,38,0.95)', titleColor: '#f1f5fb', bodyColor: '#c1cad9',
+        borderColor: 'rgba(139,92,246,0.30)', borderWidth: 1, padding: 12, cornerRadius: 10,
+        titleFont: { weight: 700, family: 'Inter' }, bodyFont: { size: 12, family: 'Inter' },
+        displayColors: true, usePointStyle: true,
+        callbacks: { label: c => `${c.dataset.label}: ${c.parsed.y === null ? '—' : c.parsed.y + '%'}` },
+      },
+    },
+    scales: {
+      x: { grid: { display: false }, ticks: { color: '#94a3b8', font: { size: 11, family: 'Inter' }, maxRotation: 45, minRotation: 45, autoSkip: true, maxTicksLimit: 18 }, border: { color: 'rgba(255,255,255,0.08)' } },
+      y: { beginAtZero: true, grid: { color: 'rgba(255,255,255,0.05)', drawTicks: false }, ticks: { color: '#94a3b8', font: { size: 11, family: 'Inter' }, callback: v => v + '%' }, border: { display: false } },
+    },
+    animation: { duration: 500, easing: 'easeOutCubic' },
+  };
+}
+
+function _hcaDrawChart(m) {
+  const cv = document.getElementById(m.id);
+  if (!cv) return;
+  if (hcaCharts[m.id]) { try { hcaCharts[m.id].destroy(); } catch (e) {} delete hcaCharts[m.id]; }
+  const groups = _hcaGroups();
+  const { labels, series } = _hcaSeries(m.key, groups);
+  const empty = document.getElementById(m.id + '-empty');
+  const hasAny = series.some(s => s.data.some(v => v !== null));
+  if (empty) empty.style.display = hasAny ? 'none' : '';
+  if (!hasAny) return;
+  const datasets = series.map((s, i) => {
+    const col = hcaScope === 'gc' ? HCA_GC_COLORS[i % HCA_GC_COLORS.length] : m.color;
+    return {
+      label: s.label, data: s.data, borderColor: col,
+      backgroundColor: hcaScope === 'gc' ? 'transparent' : col + '22',
+      tension: 0.32, pointRadius: 2.5, pointHoverRadius: 6, pointBackgroundColor: col,
+      pointBorderColor: '#0f1729', pointBorderWidth: 1.5, borderWidth: 2.5,
+      fill: hcaScope !== 'gc', spanGaps: true,
+    };
+  });
+  hcaCharts[m.id] = new Chart(cv.getContext('2d'), { type: 'line', data: { labels, datasets }, options: _hcaChartOptions() });
+  // Latest non-null value per series, shown top-right of the card.
+  const el = document.getElementById(m.id + '-totals');
+  if (el) {
+    el.innerHTML = series.map((s, i) => {
+      const col = hcaScope === 'gc' ? HCA_GC_COLORS[i % HCA_GC_COLORS.length] : m.color;
+      const last = [...s.data].reverse().find(v => v !== null);
+      return `<span style="color:${col};"><b>${last === undefined ? '—' : last + '%'}</b> ${escHtml(s.label)}</span>`;
+    }).join('');
+  }
+}
+
+function _hcaTile(label, val, sub, src) {
+  return `<div class="sl-card"><div class="sl-label">${escHtml(label)}</div><div class="sl-value">${val}</div>` +
+    `<div class="sl-sub">${sub}</div><div style="color:#64748b;font-size:10px;margin-top:3px;">${escHtml(src)}</div></div>`;
+}
+
+function renderHypercareAnalysis() {
+  const host = document.getElementById('view-HypercareAnalysis');
+  if (!host) return;
+  const h = HC_ANALYSIS;
+  if (!h || !h.days || !Object.keys(h.days).length) {
+    host.innerHTML = `<div class="card"><h3>Hypercare Analysis <span class="pending-tag">NO DATA</span></h3>
+      <div class="pending-card"><h4>mb/analysisHistory.json hasn't been generated yet.</h4>
+      <p style="color:#94a3b8;font-size:12px;">The daily refresh builds it (cards 12477 · 2787 · 7669 · 10773 · 11911).
+      Run <code>python3 mb/snapshot.py --analysis-only</code> or trigger the <b>Refresh Hypercare snapshot</b> workflow.</p></div></div>`;
+    return;
+  }
+  const T = h.teamKey || '__team__';
+  const L = h.latest || {};
+  const days = Object.keys(h.days).sort();
+  const sl = (L.spendLive || {})[T];
+  const s3 = (L.spend3kLive || {})[T];
+  const sg = (L.spendGmv || {})[T];
+  const tiles =
+    _hcaTile('Assigned Sellers', fmtNum(h.assigned ? h.assigned[T] : 0), `${(h.gcs || []).length} GCs in hypercare`, 'card 12477') +
+    _hcaTile('Spend / Live', sl && sl.pct !== null ? sl.pct + '%' : '—',
+      sl ? `${fmtNum(sl.n)} of ${fmtNum(sl.assigned)} live · ${fmtDDMMYY(L.yesterday) || L.yesterday}` : 'unavailable', 'card 2787 · yesterday') +
+    _hcaTile('3K Spend / Live', s3 && s3.pct !== null ? s3.pct + '%' : '—',
+      s3 ? `${fmtNum(s3.n)} of ${fmtNum(s3.assigned)} above ₹3,540 / 7d` : 'unavailable', 'card 7669 · last 7 days') +
+    _hcaTile('Spend / GMV', sg && sg.pct !== null ? sg.pct + '%' : '—',
+      sg ? `weighted across ${fmtNum(sg.sellers)} running sellers` : 'unavailable', 'card 10773 · latest day');
+
+  const charts = HCA_METRICS.map(m => `
+    <div class="card">
+      <h3>${escHtml(m.title)} <span class="src-tag">${hcaGran === 'wow' ? 'WEEK ON WEEK' : 'DAY ON DAY'}</span></h3>
+      <p style="color:#475569;font-size:12px;margin:0 0 10px 0;">${m.note}</p>
+      <div style="position:relative;height:340px;width:100%;">
+        <div class="chart-totals" id="${m.id}-totals"></div>
+        <canvas id="${m.id}"></canvas>
+      </div>
+      <p id="${m.id}-empty" style="display:none;color:#94a3b8;font-size:12px;text-align:center;padding:14px;">No data for this metric yet.</p>
+    </div>`).join('');
+
+  host.innerHTML = `
+    <div class="card">
+      <h3>🔎 Hypercare Analysis <span class="src-tag">METABASE</span></h3>
+      <p style="color:#475569;font-size:12px;margin:0 0 12px 0;">
+        Trends across the <b>full hypercare roster</b> (${fmtNum(h.assigned ? h.assigned[T] : 0)} assigned sellers, card 12477).
+        History is stored in the repo and grows every day — currently
+        <b>${days.length} day${days.length === 1 ? '' : 's'}</b> (${fmtDDMMYY(days[0]) || days[0]} → ${fmtDDMMYY(days[days.length - 1]) || days[days.length - 1]}).
+      </p>
+      <div class="sl-grid">${tiles}</div>
+      <div class="filter-bar" style="margin-top:12px;">
+        <span class="lbl">Granularity:</span>
+        <span class="chip ${hcaGran === 'dod' ? 'on' : ''}" data-hca-gran="dod">Day on Day</span>
+        <span class="chip ${hcaGran === 'wow' ? 'on' : ''}" data-hca-gran="wow">Week on Week</span>
+        <span class="lbl" style="margin-left:14px;">Breakdown:</span>
+        <span class="chip ${hcaScope === 'team' ? 'on' : ''}" data-hca-scope="team">Team</span>
+        <span class="chip ${hcaScope === 'gc' ? 'on' : ''}" data-hca-scope="gc">GC wise</span>
+      </div>
+      <p style="color:#64748b;font-size:11px;margin:10px 0 0 0;line-height:1.6;">
+        <b>How to read this:</b> the KPI tiles above come from the cards each metric is defined on
+        (2787 · 7669), while the trend lines below come from card <b>10773</b> — the only source that keeps
+        day-wise history. In aggregate they land within ~1 percentage point, but they disagree on
+        individual sellers, so they are reported separately rather than blended.
+        The denominator here is the whole roster (${fmtNum(h.assigned ? h.assigned[T] : 0)}), which is why these
+        read lower than the Marketing Seller View — that view is scoped to its ~249-seller active universe.
+      </p>
+    </div>
+    ${charts}
+    ${_hcaRevivedTable()}`;
+
+  HCA_METRICS.forEach(_hcaDrawChart);
+  host.querySelectorAll('[data-hca-gran]').forEach(el => el.addEventListener('click', () => { hcaGran = el.dataset.hcaGran; renderHypercareAnalysis(); }));
+  host.querySelectorAll('[data-hca-scope]').forEach(el => el.addEventListener('click', () => { hcaScope = el.dataset.hcaScope; renderHypercareAnalysis(); }));
+  const bySel = document.getElementById('hca-rev-by');
+  if (bySel) bySel.addEventListener('change', e => { hcaRevBy = e.target.value || '__all__'; renderHypercareAnalysis(); });
+  const tbl = document.getElementById('hca-rev-table');
+  if (tbl) makeTableSortable(tbl);
+  const ex = document.getElementById('hca-rev-export');
+  if (ex) ex.addEventListener('click', () => {
+    const rows = _hcaRevivedRows().map(r => ({
+      seller_id: r.seller_id, seller_name: r.seller_name, revived_by: r.revived_by,
+      revived_on: r.revived_at || '', current_gc: r.current_gc,
+      spend_before_revival: r.spend_before_revival, spend_after_revival: r.spend_after,
+      spend_after_partial: r.window_truncated ? 'yes' : 'no',
+      spend_after_lifetime: r.spend_after_lifetime, last_spend_date: r.last_spend_date || '',
+    }));
+    if (rows.length) exportRowsAsCSV(rows, `revived-sellers-${localISODate(new Date())}`);
+  });
+}
+
+function _hcaRevivedRows() {
+  const rv = HC_REVIVED;
+  if (!rv || !Array.isArray(rv.sellers)) return [];
+  return hcaRevBy === '__all__' ? rv.sellers : rv.sellers.filter(s => s.revived_by === hcaRevBy);
+}
+
+function _hcaRevivedTable() {
+  const rv = HC_REVIVED;
+  if (!rv || !Array.isArray(rv.sellers) || !rv.sellers.length) {
+    return `<div class="card"><h3>Revived Sellers <span class="pending-tag">NO DATA</span></h3>
+      <div class="pending-card"><h4>mb/revivedSellers.json hasn't been generated yet.</h4></div></div>`;
+  }
+  const rows = _hcaRevivedRows();
+  const byOpts = ['__all__', ...[...new Set(rv.sellers.map(s => s.revived_by).filter(Boolean))].sort()];
+  const money = v => (v === null || v === undefined) ? '<span class="empty-cell">—</span>' : '₹' + fmtNum(Math.round(v));
+  const body = rows.map(r => {
+    const started = (r.spend_after || 0) > 0;
+    const afterCol = r.spend_after === null ? '#94a3b8' : (started ? '#047857' : '#b91c1c');
+    const partial = r.window_truncated
+      ? ` <span title="Revived before ${escHtml(rv.windowFrom || '')}, so card 10773's rolling window only covers part of the period" style="color:#b45309;font-weight:700;cursor:help;">◐</span>` : '';
+    return `<tr>
+      ${sellerIdCell(r.seller_id)}
+      <td>${escHtml(r.seller_name) || '<span class="empty-cell">—</span>'}</td>
+      <td>${escHtml(r.revived_by) || '<span class="empty-cell">—</span>'}</td>
+      <td style="color:#475569;white-space:nowrap;">${fmtDDMMYY(r.revived_at) || '<span class="empty-cell">—</span>'}</td>
+      <td class="gc">${escHtml(r.current_gc) || '<span class="empty-cell">—</span>'}${r.in_hypercare ? '' : ' <span title="Not in the current hypercare roster (card 12477)" style="color:#94a3b8;cursor:help;">↗</span>'}</td>
+      <td class="num">${money(r.spend_before_revival)}</td>
+      <td class="num" style="color:${afterCol};font-weight:600;">${r.spend_after === null ? '<span class="empty-cell">n/a</span>' : money(r.spend_after)}${partial}</td>
+      <td class="num" style="color:#475569;">${money(r.spend_after_lifetime)}</td>
+      <td style="color:#475569;white-space:nowrap;">${fmtDDMMYY(r.last_spend_date) || '<span class="empty-cell">—</span>'}</td>
+    </tr>`;
+  }).join('');
+  const ind = '<span class="sort-indicator" style="opacity:.35;">⇅</span>';
+  return `
+    <div class="card">
+      <h3>Revived Sellers <span class="src-tag">CARD 11911</span></h3>
+      <p style="color:#475569;font-size:12px;margin:0 0 10px 0;">
+        Every seller revived (funds added) per card 11911, with revival context.
+        <b>Spend before revival</b> is card 9532's <code>spend</code> column;
+        <b>spend after revival</b> is summed day-wise from card 10773.
+      </p>
+      <div class="filter-bar" style="margin-bottom:10px;">
+        <span class="lbl">Revived by:</span>
+        <select id="hca-rev-by" style="padding:5px 8px;border-radius:8px;">
+          ${byOpts.map(o => `<option value="${escHtml(o)}"${o === hcaRevBy ? ' selected' : ''}>${o === '__all__' ? 'All' : escHtml(o)}</option>`).join('')}
+        </select>
+        <button id="hca-rev-export" class="chip" style="margin-left:auto;cursor:pointer;">⬇ Export CSV</button>
+      </div>
+      <div class="tbl-wrap">
+        <table class="t" id="hca-rev-table">
+          <thead><tr>
+            <th>Seller ID${ind}</th><th>Seller Name${ind}</th><th>Revived By${ind}</th>
+            <th>Revived On${ind}</th><th>Current GC${ind}</th>
+            <th class="num">Spend Before Revival${ind}</th>
+            <th class="num">Spend After Revival${ind}</th>
+            <th class="num">Spend After (Lifetime)${ind}</th>
+            <th>Last Spend Date${ind}</th>
+          </tr></thead>
+          <tbody>${body || `<tr><td colspan="9" style="text-align:center;color:#94a3b8;padding:20px;">No revived sellers match this filter.</td></tr>`}</tbody>
+        </table>
+      </div>
+      <p style="color:#64748b;font-size:11px;margin-top:8px;line-height:1.6;">
+        ${fmtNum(rows.length)} of ${fmtNum(rv.total)} revived sellers shown.
+        <b>◐</b> = revived before ${fmtDDMMYY(rv.windowFrom) || rv.windowFrom}, so <i>Spend After Revival</i> is a
+        partial figure — card 10773 only holds a rolling ~31-day window (${fmtNum(rv.windowTruncated)} sellers).
+        For those, <i>Spend After (Lifetime)</i> is the better number: card 10065 total minus card 9532 pre-revival spend.
+        <b>n/a</b> means the seller has no rows in 10773 at all, which is not the same as having spent nothing.
+        <b>↗</b> = no longer on the hypercare roster. ${fmtNum(rv.noPreRevival)} sellers have no 9532 row, so no pre-revival figure.
+      </p>
+    </div>`;
+}
+
 // Switch the active workspace. Used by both the top tab bar AND the homepage tiles.
 function activateTeam(team) {
   document.querySelectorAll(".tabs .tab").forEach(b => b.classList.remove("active"));
-  document.querySelectorAll("#view-Home, #view-Scaling, #view-Marketing, #view-Unassignment, #view-Revival, #view-Daily, #view-CallHistory, #view-HITSRecovery, #view-Creatives").forEach(v => v.classList.remove("active"));
+  document.querySelectorAll("#view-Home, #view-Scaling, #view-Marketing, #view-Unassignment, #view-Revival, #view-Daily, #view-CallHistory, #view-HITSRecovery, #view-HypercareAnalysis, #view-Creatives").forEach(v => v.classList.remove("active"));
   const tabBtn = document.querySelector(`.tabs .tab[data-team="${team}"]`);
   if (tabBtn) tabBtn.classList.add("active");
   const view = document.getElementById(`view-${team}`);
@@ -10967,6 +11303,7 @@ function activateTeam(team) {
   if (team === "Daily") renderDailyReport();
   if (team === "CallHistory") renderCallHistory();
   if (team === "HITSRecovery") renderHITSRecovery();
+  if (team === "HypercareAnalysis") renderHypercareAnalysis();
   if (team === "Creatives") renderCreativesTracker();
 }
 document.querySelectorAll(".tabs .tab").forEach(btn => {

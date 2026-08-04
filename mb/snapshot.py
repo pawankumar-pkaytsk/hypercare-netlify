@@ -495,6 +495,366 @@ def build_priority_calling(url, H, revival_bySeller):
     print(f"[priorityCalling] {len(rows)} sellers scored · {no_icp} with no ICP (P5=1) → {path}")
 
 
+# ---- Hypercare Analysis: accumulating daily trend history + revived sellers ----
+# Cards: 12477 (hypercare universe / assigned)  2787 (today+yesterday spend)
+#        7669  (last-7-day google+fb spend)     10773 (day-wise spend + spend_gmv)
+#        11911 (revived sellers)                9532  (pre-revival spend, via revivalSpend)
+#
+# WHY A HISTORY FILE: 2787 and 7669 are point-in-time (no history at all), and
+# 10773 is a ROLLING ~31-day window. Nothing upstream can answer "what was
+# spend/live 3 months ago", so mb/analysisHistory.json is append-only: every run
+# merges today's numbers in and NEVER drops a day that has fallen out of 10773's
+# window. That file is the only durable record — treat it as data, not a cache.
+HC_TEAM = "__team__"          # pseudo-GC key for the whole-team aggregate
+HC_LIVE_MIN = 1.0            # "live" = spend strictly greater than this
+HC_3K_MIN = 3540.0           # matches the dashboard's SPEND_THRESHOLD
+HC_WINDOW = 7                # trailing days for the 3k / spend-gmv qualifier
+
+
+def _hc_get(r, idx, *names):
+    """Read a /query/json row by column NAME, falling back to POSITION.
+
+    Object key order == card column order (see main()), so positional access is
+    the documented contract for these cards; names are tried first so a column
+    rename upstream doesn't silently shift everything by one.
+    """
+    for n in names:
+        if n in r:
+            return r[n]
+    ks = list(r.keys())
+    return r[ks[idx]] if idx < len(ks) else None
+
+
+def _hc_parse_ts(v):
+    """11911's timestamp is a display string: 'May 22, 2026, 06:01:23'."""
+    s = str(v or "").strip()
+    if not s:
+        return None
+    for fmt in ("%b %d, %Y, %H:%M:%S", "%b %d, %Y, %H:%M",
+                "%B %d, %Y, %H:%M:%S", "%Y-%m-%dT%H:%M:%S", "%Y-%m-%d"):
+        try:
+            return datetime.datetime.strptime(s[:19] if "T" in s else s, fmt)
+        except Exception:
+            pass
+    try:                      # last resort: leading ISO date
+        return datetime.datetime.strptime(s[:10], "%Y-%m-%d")
+    except Exception:
+        return None
+
+
+def _hc_ratio(live, assigned):
+    return round(100.0 * live / assigned, 2) if assigned else None
+
+
+def build_hypercare_analysis(url, H, dm_rows=None, revival_bySeller=None, trend=True):
+    """Hypercare Analysis feeds: mb/analysisHistory.json + mb/revivedSellers.json.
+
+    History carries three series, team-wide and per GC, for every day we have:
+      live      — sellers with that day's spend > 1, over assigned   (from 10773)
+      live3k    — sellers with trailing-7d spend > 3540, over assigned (from 10773)
+      spendGmv  — spend-weighted spend/GMV% of those qualifying sellers (10773)
+    plus point-in-time captures from the cards the metrics are actually defined on:
+      liveAuth   — from card 2787 yesterday_spend > 1
+      live3kAuth — from card 7669 (google+fb last 7 days) > 3540
+    The *Auth series only exist for days this job ran, so the charts draw the
+    10773-derived series (consistent + backfillable) and the KPI tiles show the
+    authoritative card numbers. They agree to ~1pp in aggregate but NOT per
+    seller — 10773 and 7669 genuinely disagree on individual sellers.
+    """
+    def pull(cid):
+        last = None
+        for attempt in range(4):
+            try:
+                return req(f"{url}/api/card/{cid}/query/json", 'POST', {}, H)
+            except Exception as e:
+                last = e
+                time.sleep(2 + attempt * 3)
+        raise last
+
+    try:
+        uni_rows = pull(12477)    # hypercare universe → the assigned denominator
+        rev_rows = pull(11911) if trend else []   # revived sellers (fund-add events)
+    except Exception as e:
+        print(f"[hypercareAnalysis] FAILED (universe/revived): {e} (keeping previous files)")
+        return
+    if trend and dm_rows is None:
+        try:
+            dm_rows = pull(10773)
+        except Exception as e:
+            print(f"[hypercareAnalysis] FAILED (10773): {e} (keeping previous files)")
+            return
+    try:
+        day_rows = pull(2787)
+    except Exception as e:
+        print(f"[hypercareAnalysis] 2787 failed ({e}); liveAuth skipped")
+        day_rows = []
+    try:
+        wk7_rows = pull(7669)
+    except Exception as e:
+        print(f"[hypercareAnalysis] 7669 failed ({e}); live3kAuth skipped")
+        wk7_rows = []
+
+    # ---- universe: seller → GC, and the assigned denominator per group -------
+    gc_by = {}
+    for r in uni_rows:
+        sid = str(_hc_get(r, 0, 'seller_id') or '').strip()
+        gc = _gc_canon(_hc_get(r, 9, 'growth_consultant_name'))
+        if not sid or not gc or gc == '-':
+            continue
+        gc_by[sid] = gc
+    gcs = sorted(set(gc_by.values()))
+    assigned = {HC_TEAM: len(gc_by)}
+    for gc in gcs:
+        assigned[gc] = sum(1 for g in gc_by.values() if g == gc)
+    if not gc_by:
+        print("[hypercareAnalysis] universe (12477) resolved 0 sellers — aborting, previous files kept")
+        return
+    groups = [HC_TEAM] + gcs
+
+    # ---- 10773 daily spend + spend_gmv, restricted to the universe -----------
+    # Positional schema (see mb/parsers.mjs processDailyMetricsCSV):
+    #   0=seller_id, 1=date, 2=spend, 9=spend_gmv
+    # NOTE: keep EVERY seller here, not just the universe. The revived-sellers
+    # table spans sellers who have left hypercare (only 208 of 266 are in 12477),
+    # and restricting this map made their spend_after read 0 instead of unknown.
+    # The metric loops below iterate gc_by, so the extra sellers can't leak in.
+    spend = {}      # sid -> {date: spend}   (all sellers)
+    sgmv = {}       # sid -> {date: spend_gmv}
+    all_days = set()
+    for r in (dm_rows or []):
+        sid = str(_hc_get(r, 0, 'seller_id') or '').strip()
+        if not sid:
+            continue
+        d = str(_hc_get(r, 1, 'date') or '')[:10]
+        if len(d) != 10 or d[4] != '-':
+            continue
+        sp = _spend_num(_hc_get(r, 2, 'spend'))
+        sg = _spend_num(_hc_get(r, 9, 'spend_gmv'))
+        spend.setdefault(sid, {})[d] = spend.get(sid, {}).get(d, 0.0) + sp
+        if sg > 0:
+            sgmv.setdefault(sid, {})[d] = sg
+        all_days.add(d)
+    days = sorted(all_days)
+    if trend and not days:
+        print("[hypercareAnalysis] 10773 produced no days for the universe — aborting")
+        return
+
+    computed = {}
+    for i, d in enumerate(days):
+        window = days[max(0, i - (HC_WINDOW - 1)):i + 1]
+        partial = len(window) < HC_WINDOW      # not enough lookback for a true 7d sum
+        # per-seller day spend + trailing-window spend — universe sellers ONLY,
+        # so the team aggregate can never pick up a non-hypercare seller.
+        live_ids, qual_ids = set(), set()
+        for sid in gc_by:
+            byd = spend.get(sid)
+            if not byd:
+                continue
+            if byd.get(d, 0.0) > HC_LIVE_MIN:
+                live_ids.add(sid)
+            if sum(byd.get(w, 0.0) for w in window) > HC_3K_MIN:
+                qual_ids.add(sid)
+        rec_live, rec_3k, rec_sg = {}, {}, {}
+        for g in groups:
+            def _in(sid, _g=g):
+                return True if _g == HC_TEAM else gc_by.get(sid) == _g
+            n_live = sum(1 for s in live_ids if _in(s))
+            n_3k = sum(1 for s in qual_ids if _in(s))
+            rec_live[g] = {'n': n_live, 'assigned': assigned[g], 'pct': _hc_ratio(n_live, assigned[g])}
+            rec_3k[g] = {'n': n_3k, 'assigned': assigned[g], 'pct': _hc_ratio(n_3k, assigned[g])}
+            # Weighted spend/GMV over the qualifying ("running") sellers only:
+            # implied GMV_i = spend_i / (spend_gmv_i/100) → ratio = Σspend / ΣGMV.
+            tot_s = tot_g = 0.0
+            for s in qual_ids:
+                if not _in(s):
+                    continue
+                sp = spend.get(s, {}).get(d, 0.0)
+                sg = sgmv.get(s, {}).get(d, 0.0)
+                if sp > 0 and sg > 0:
+                    tot_s += sp
+                    tot_g += sp / (sg / 100.0)
+            # Keep the raw totals, not just the ratio: a Week-on-Week spend/GMV is
+            # Σspend / ΣGMV over the week, which cannot be recovered from daily
+            # percentages (averaging ratios ≠ ratio of sums). The dashboard
+            # aggregates these to whatever granularity it renders.
+            rec_sg[g] = {'pct': round(100.0 * tot_s / tot_g, 2) if tot_g > 0 else None,
+                         'spend': round(tot_s, 2), 'gmv': round(tot_g, 2),
+                         'sellers': sum(1 for s in qual_ids if _in(s))}
+        computed[d] = {'live': rec_live, 'live3k': rec_3k, 'spendGmv': rec_sg,
+                       'src': '10773', 'partialWindow': partial}
+
+    # ---- point-in-time captures from the authoritative cards ----------------
+    today = datetime.datetime.utcnow().date()
+    yday = today - datetime.timedelta(days=1)
+    auth_live, auth_3k = None, None
+    if day_rows:
+        n_by = {g: 0 for g in groups}
+        for r in day_rows:
+            sid = str(_hc_get(r, 0, 'seller_id') or '').strip()
+            if sid not in gc_by:
+                continue
+            if _spend_num(_hc_get(r, 2, 'yesterday_spend')) > HC_LIVE_MIN:
+                n_by[HC_TEAM] += 1
+                n_by[gc_by[sid]] = n_by.get(gc_by[sid], 0) + 1
+        auth_live = {g: {'n': n_by[g], 'assigned': assigned[g], 'pct': _hc_ratio(n_by[g], assigned[g])}
+                     for g in groups}
+    if wk7_rows:
+        n_by = {g: 0 for g in groups}
+        for r in wk7_rows:
+            sid = str(_hc_get(r, 0, 'seller_id') or '').strip()
+            if sid not in gc_by:
+                continue
+            tot = _spend_num(_hc_get(r, 2, 'google_spend_last7day')) + \
+                  _spend_num(_hc_get(r, 3, 'fb_spend_last7day'))
+            if tot > HC_3K_MIN:
+                n_by[HC_TEAM] += 1
+                n_by[gc_by[sid]] = n_by.get(gc_by[sid], 0) + 1
+        auth_3k = {g: {'n': n_by[g], 'assigned': assigned[g], 'pct': _hc_ratio(n_by[g], assigned[g])}
+                   for g in groups}
+
+    # ---- merge into the append-only history ---------------------------------
+    path = os.path.join(REPO, "mb", "analysisHistory.json")
+    hist = {}
+    if os.path.exists(path):
+        try:
+            hist = json.load(open(path))
+        except Exception as e:
+            print(f"[hypercareAnalysis] existing history unreadable ({e}) — starting fresh")
+            hist = {}
+    hdays = hist.get('days') or {}
+    kept = len(hdays)
+    for d, rec in computed.items():
+        prev = hdays.get(d) or {}
+        prev.update(rec)                 # refresh 10773-derived series (upstream revises)
+        prev.setdefault('assigned', assigned)
+        hdays[d] = prev
+    # *Auth values are point-in-time captures. Last write wins within the same
+    # calendar day (a later run sees more-complete late-arriving spend), but no
+    # run ever touches a day it isn't currently reporting on.
+    if auth_live is not None:
+        hdays.setdefault(yday.isoformat(), {})['liveAuth'] = auth_live
+    if auth_3k is not None:
+        hdays.setdefault(today.isoformat(), {})['live3kAuth'] = auth_3k
+
+    prev_latest = (hist.get('latest') or {})
+    out = {
+        'generatedAt': datetime.datetime.utcnow().strftime('%Y-%m-%dT%H:%M:%SZ'),
+        'teamKey': HC_TEAM,
+        'gcs': gcs,
+        'assigned': assigned,
+        'thresholds': {'live': HC_LIVE_MIN, 'spend3k': HC_3K_MIN, 'windowDays': HC_WINDOW},
+        # In auth-only mode (no 10773 pull) keep whatever window the last full run
+        # recorded — don't blank it out.
+        'windowFrom': days[0] if days else hist.get('windowFrom'),
+        'windowTo': days[-1] if days else hist.get('windowTo'),
+        'trendRefreshed': bool(days),
+        'latest': {
+            'date': today.isoformat(),
+            'yesterday': yday.isoformat(),
+            'spendLive': auth_live,      # card 2787 · yesterday_spend > 1
+            'spend3kLive': auth_3k,      # card 7669 · google+fb last 7d > 3540
+            'spendGmv': computed[days[-1]]['spendGmv'] if days else prev_latest.get('spendGmv'),
+        },
+        'sources': {
+            'universe': 'card 12477 (all hypercare sellers · assigned denominator)',
+            'trend': 'card 10773 (day-wise spend + spend_gmv) — rolling ~31d window',
+            'spendLive': 'card 2787 (yesterday_spend > 1)',
+            'spend3kLive': 'card 7669 (google+fb last 7 days > 3540)',
+        },
+        'days': hdays,
+    }
+    with open(path, "w") as f:
+        json.dump(out, f, separators=(',', ':'))
+    mode = "full" if trend else "auth-only (no 10773 pull)"
+    print(f"[hypercareAnalysis] {mode} · {len(gc_by)} assigned across {len(gcs)} GCs · "
+          f"{len(computed)} days recomputed · {len(hdays)} days total (was {kept}) → {path}")
+
+    if trend:
+        build_revived_sellers(rev_rows, gc_by, spend, revival_bySeller, days)
+    return out
+
+
+def build_revived_sellers(rev_rows, gc_by, spend_all, revival_bySeller, days):
+    """mb/revivedSellers.json — every seller in card 11911 with revival context.
+
+    spendAfter is summed from card 10773, which only holds a rolling ~31 days, so
+    for a seller revived before that window it is a PARTIAL figure (flagged with
+    windowTruncated). revivalSpend.json's lifetime `spendAfter` (10065 total minus
+    9532 pre-revival) is carried alongside as spendAfterLifetime for those cases.
+    """
+    if revival_bySeller is None:
+        try:
+            revival_bySeller = json.load(open(os.path.join(REPO, "mb", "revivalSpend.json")))['bySeller']
+        except Exception:
+            revival_bySeller = {}
+    win_start = days[0] if days else None
+    # Dedupe to the most-recent revival event per seller (matches build_revival_spend).
+    by = {}
+    for r in rev_rows:
+        sid = str(_hc_get(r, 0, 'seller_id') or '').strip()
+        if not sid:
+            continue
+        ts = _hc_parse_ts(_hc_get(r, 4, 'timestamp'))
+        cur = by.get(sid)
+        if cur is None or (ts and cur['ts'] and ts > cur['ts']) or (ts and not cur['ts']):
+            by[sid] = {'ts': ts,
+                       'name': _canon(_hc_get(r, 1, 'seller_name')),
+                       'by': _canon(_hc_get(r, 3, 'submitted_by')),
+                       'funds': _spend_num(_hc_get(r, 2, 'funds_added_amount_in_rupees')),
+                       'n': (cur['n'] + 1) if cur else 1}
+        else:
+            by[sid]['n'] = by[sid].get('n', 1) + 1
+
+    rows, truncated = [], 0
+    for sid, d in by.items():
+        rv = revival_bySeller.get(sid) or {}
+        rdate = d['ts'].date().isoformat() if d['ts'] else None
+        byd = spend_all.get(sid) or {}
+        after = None
+        last_spend = None
+        # No 10773 rows at all → spend_after is UNKNOWN, not zero. Conflating the
+        # two made sellers with real post-revival spend look like they never spent.
+        if rdate and byd:
+            after = round(sum(v for k, v in byd.items() if k >= rdate), 2)
+        if byd:
+            spent_days = sorted(k for k, v in byd.items() if v > 0)
+            last_spend = spent_days[-1] if spent_days else None
+        trunc = bool(rdate and win_start and rdate < win_start)
+        if trunc:
+            truncated += 1
+        rows.append({
+            'seller_id': sid,
+            'seller_name': d['name'] or '',
+            'revived_by': d['by'] or '',
+            'revived_at': rdate,
+            'revival_events': d.get('n', 1),
+            'funds_added': d['funds'],
+            'current_gc': gc_by.get(sid) or _gc_canon(rv.get('gc')) or '',
+            'in_hypercare': sid in gc_by,
+            # From card 10773 (windowed) — partial when revived before windowFrom.
+            'spend_after': after,
+            'window_truncated': trunc,
+            # Lifetime equivalent from revivalSpend (10065 total − 9532 pre).
+            'spend_after_lifetime': rv.get('spendAfter'),
+            'last_spend_date': last_spend or (rv.get('lastSpend') or None),
+            # Card 9532 'spend' column = spend BEFORE revival.
+            'spend_before_revival': rv.get('preRevival'),
+            'decision': rv.get('decision') or '',
+        })
+    rows.sort(key=lambda r: (r['revived_at'] or ''), reverse=True)
+    out = {'generatedAt': datetime.datetime.utcnow().strftime('%Y-%m-%dT%H:%M:%SZ'),
+           'windowFrom': win_start, 'total': len(rows),
+           'windowTruncated': truncated,
+           'noPreRevival': sum(1 for r in rows if r['spend_before_revival'] is None),
+           'sellers': rows}
+    path = os.path.join(REPO, "mb", "revivedSellers.json")
+    with open(path, "w") as f:
+        json.dump(out, f, separators=(',', ':'))
+    print(f"[revivedSellers] {len(rows)} revived sellers · {truncated} revived before the "
+          f"10773 window (spend_after partial) · {out['noPreRevival']} without a 9532 pre-revival row → {path}")
+    return out
+
+
 def main():
     url, email, pw = creds()
     tok = req(url + "/api/session", 'POST',
@@ -511,6 +871,20 @@ def main():
         build_marketing_sellers(url, H)
         return
 
+    # Analysis-only mode: refresh just the Hypercare Analysis feeds
+    # (mb/analysisHistory.json + mb/revivedSellers.json). Pulls 12477 + 11911 +
+    # 10773 + 2787 + 7669. Runs daily so the trend history keeps accumulating
+    # past 10773's rolling ~31-day window.
+    if '--analysis-only' in sys.argv or '--analysis-auth-only' in sys.argv:
+        os.makedirs(OUTDIR, exist_ok=True)
+        # --analysis-auth-only skips the 10773 pull and records ONLY the perishable
+        # point-in-time captures (2787 + 7669). The 10773-derived trend can always
+        # be re-backfilled for ~31 days, but a missed liveAuth/live3kAuth day is
+        # gone forever — so this cheap mode is the daily safety net when the full
+        # refresh fails (e.g. build.mjs OOM aborts it before the commit).
+        build_hypercare_analysis(url, H, trend='--analysis-auth-only' not in sys.argv)
+        return
+
     os.makedirs(OUTDIR, exist_ok=True)
     manifest = {
         "generatedAt": datetime.datetime.utcnow().strftime('%Y-%m-%dT%H:%M:%SZ'),
@@ -518,6 +892,7 @@ def main():
     }
     total_bytes = 0
     failures = []
+    dm_rows_for_analysis = None
     for key, cid in CARDS.items():
         # /query/json → ALL rows as objects with RAW typed values (ISO dates,
         # raw numerics). The regular /query endpoint caps at 2000 rows; /query/json
@@ -538,6 +913,10 @@ def main():
             continue
         raw_n = len(rows_obj)
         rows_obj = reduce_rows(key, rows_obj)
+        # Hand 10773 to the Analysis builder instead of pulling it twice — it is
+        # the same card and BigQuery has a daily scan quota.
+        if key == "dailyMetrics":
+            dm_rows_for_analysis = rows_obj
         cols = list(rows_obj[0].keys()) if rows_obj else []
         rows = [[r.get(c) for c in cols] for r in rows_obj]
         csv = rows_to_csv(cols, rows)
@@ -563,6 +942,13 @@ def main():
         build_marketing_sellers(url, H)
     except Exception as e:
         print(f"[marketingSellers] FAILED: {e}")
+    # Hypercare Analysis feeds (12477 + 11911 + 2787 + 7669 + the 10773 rows
+    # already pulled above → mb/analysisHistory.json + mb/revivedSellers.json)
+    try:
+        build_hypercare_analysis(url, H, dm_rows=dm_rows_for_analysis,
+                                 revival_bySeller=revival_bySeller)
+    except Exception as e:
+        print(f"[hypercareAnalysis] FAILED: {e}")
 
     with open(os.path.join(OUTDIR, "manifest.json"), "w") as f:
         json.dump(manifest, f, indent=2)

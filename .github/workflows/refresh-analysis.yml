@@ -1,0 +1,69 @@
+name: Capture analysis history
+
+# Safety net for the Hypercare Analysis trend history (mb/analysisHistory.json).
+#
+# WHY THIS EXISTS: that file is append-only and is the ONLY durable record of the
+# daily numbers — card 2787 (yesterday spend) and card 7669 (last-7-day spend) are
+# point-in-time and keep no history at all, so a day that is never captured is
+# gone for good. refresh.yml does capture it, but it commits only AFTER
+# `node mb/build.mjs`, and a build.mjs failure aborts the job before the commit
+# (this has silently happened before — see the "silent stale data" note in the
+# project docs). This job therefore re-captures just the perishable point-in-time
+# series on its own, independent of build.mjs.
+#
+# It runs `--analysis-auth-only`, which deliberately does NOT pull card 10773.
+# 10773 is a rolling ~31-day window, so its derived trend can always be
+# re-backfilled by any later full run — no need to spend BigQuery scan quota on
+# it twice a day.
+on:
+  schedule:
+    - cron: "0 17 * * *"   # 22:30 IST — late enough that a failed morning refresh is already known
+  workflow_dispatch: {}
+
+# Share the full-refresh lock so the jobs never race on push.
+concurrency:
+  group: hypercare-refresh
+  cancel-in-progress: false
+
+permissions:
+  contents: write
+  pages: write
+
+jobs:
+  capture-analysis:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Capture point-in-time series (cards 12477 + 2787 + 7669)
+        env:
+          HC_REPO: ${{ github.workspace }}
+          METABASE_URL: ${{ secrets.METABASE_URL }}
+          METABASE_USER_EMAIL: ${{ secrets.METABASE_USER_EMAIL }}
+          METABASE_PASSWORD: ${{ secrets.METABASE_PASSWORD }}
+        run: python3 mb/snapshot.py --analysis-auth-only
+
+      - name: Commit if changed
+        run: |
+          git config user.name "hypercare-bot"
+          git config user.email "kickstarter@blitzscale.co"
+          git add mb/analysisHistory.json
+          if git diff --cached --quiet; then
+            echo "No analysis history changes."
+          else
+            git commit -m "Analysis history capture ($(date -u +%FT%TZ))"
+            # The full-refresh job may have pushed while we were querying.
+            git pull --rebase origin main
+            git push
+            echo "Pushed analysis history capture."
+          fi
+
+      - name: Force a fresh Pages build (legacy builds can hang)
+        if: always()
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh api -X POST repos/${{ github.repository }}/pages/builds || true
