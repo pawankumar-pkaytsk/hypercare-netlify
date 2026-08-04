@@ -3086,7 +3086,7 @@ const SHEETS_FAILED_PLACEHOLDER = /^FILL_IN_/;
 // Bumped on every push so the UI can show which build the user is actually
 // running. If this string doesn't match the latest deploy, the browser is
 // serving a cached/older version.
-const BUILD_VERSION = "2026-08-04 · Analysis: explicit WoW weighted-average note + short-week labels";
+const BUILD_VERSION = "2026-08-04 · Analysis: consolidated all-three-metrics chart with per-series toggles";
 // Optional convenience: persist file IDs to localStorage so you don't have to
 // edit the file every redeploy. If a value is set in localStorage it takes
 // precedence over the hard-coded one above. See window.hcSetSheetId() helper.
@@ -10995,6 +10995,10 @@ let hcaGran = 'dod';        // 'dod' (day-on-day) | 'wow' (week-on-week)
 let hcaScope = 'team';      // 'team' (one aggregate line) | 'gc' (one line per GC)
 let hcaCharts = {};         // chart id -> Chart instance (destroyed on re-render)
 let hcaRevBy = '__all__';   // revived-sellers table: filter on "revived by"
+// Merged chart: which of the three metrics are plotted, and (in GC mode) whose numbers.
+// All three are percentages of comparable magnitude, so they share one y axis.
+let hcaMergeOn = { live: true, live3k: true, spendGmv: true };
+let hcaMergeGc = null;      // null → team aggregate; set to a GC name in GC mode
 
 const HCA_METRICS = [
   { key: 'live', id: 'hca-live', title: 'Spend / Live Trend',
@@ -11016,7 +11020,11 @@ function _hcaWeekLabel(key, isoDate) {
 // Bucket the stored days into either single days or ISO weeks, then aggregate
 // each group's metric ACROSS the bucket from raw counts/totals — never by
 // averaging percentages (ratio of sums ≠ mean of ratios).
-function _hcaSeries(metricKey, groups) {
+// opts.bucketDayCount — label short weeks by the bucket's stored-day count rather than by
+// the days THIS metric can use. The merged chart plots three metrics on ONE x axis and each
+// metric drops a different set of partial-lookback days, so the per-metric counts would
+// yield three conflicting label sets for the same buckets.
+function _hcaSeries(metricKey, groups, opts) {
   const h = HC_ANALYSIS;
   if (!h || !h.days) return { labels: [], series: [] };
   const days = Object.keys(h.days).sort();
@@ -11042,7 +11050,11 @@ function _hcaSeries(metricKey, groups) {
     const bd = b.days.filter(usable);
     // Flag short weeks (first/last bucket, or days dropped for partial lookback) so a
     // 2-day bucket isn't read as a full week's number.
-    if (hcaGran === 'wow' && bd.length && bd.length < 7) b.label += ` (${bd.length}d)`;
+    // Per-metric charts count the days that metric can actually use; the merged chart
+    // counts the bucket's stored days instead, which is metric-independent and so keeps
+    // one identical label set across all three series while still flagging short weeks.
+    const nLbl = (opts && opts.bucketDayCount) ? b.days.length : bd.length;
+    if (hcaGran === 'wow' && nLbl && nLbl < 7) b.label += ` (${nLbl}d)`;
     for (let i = 0; i < groups.length; i++) {
       const gk = groups[i].key;
       let val = null;
@@ -11079,7 +11091,10 @@ function _hcaChartOptions() {
     responsive: true, maintainAspectRatio: false,
     interaction: { mode: 'index', intersect: false },
     plugins: {
-      legend: { position: 'top', labels: { color: '#c1cad9', usePointStyle: true, padding: 14, font: { size: 12, weight: 600, family: 'Inter' } } },
+      // Legend sits at the BOTTOM on these charts: the top-right corner is taken by the
+      // latest-value badge (.chart-totals), and a top legend collides with it as soon as
+      // there is more than one series (5 GCs, or the 3 merged metrics).
+      legend: { position: 'bottom', labels: { color: '#c1cad9', usePointStyle: true, padding: 14, boxWidth: 8, font: { size: 12, weight: 600, family: 'Inter' } } },
       tooltip: {
         backgroundColor: 'rgba(14,20,38,0.95)', titleColor: '#f1f5fb', bodyColor: '#c1cad9',
         borderColor: 'rgba(139,92,246,0.30)', borderWidth: 1, padding: 12, cornerRadius: 10,
@@ -11126,6 +11141,93 @@ function _hcaDrawChart(m) {
       return `<span style="color:${col};"><b>${last === undefined ? '—' : last + '%'}</b> ${escHtml(s.label)}</span>`;
     }).join('');
   }
+}
+
+// Merged chart — all three metrics on one x axis for the same subject (team, or one GC).
+// GC mode deliberately narrows to a single GC: 3 metrics x 5 GCs = 15 lines is unreadable,
+// so the per-GC comparison stays in the three individual charts above.
+function _hcaMergeSubject() {
+  const h = HC_ANALYSIS;
+  if (hcaScope !== 'gc') return { key: h.teamKey || '__team__', label: 'Hypercare Team' };
+  const gcs = h.gcs || [];
+  const gc = (hcaMergeGc && gcs.includes(hcaMergeGc)) ? hcaMergeGc : gcs[0];
+  return { key: gc, label: (typeof DISPLAY !== 'undefined' && DISPLAY[gc]) || gc };
+}
+
+function _hcaDrawMerged() {
+  const cv = document.getElementById('hca-merged');
+  if (!cv) return;
+  if (hcaCharts['hca-merged']) { try { hcaCharts['hca-merged'].destroy(); } catch (e) {} delete hcaCharts['hca-merged']; }
+  const subject = _hcaMergeSubject();
+  const on = HCA_METRICS.filter(m => hcaMergeOn[m.key]);
+  const empty = document.getElementById('hca-merged-empty');
+  const totals = document.getElementById('hca-merged-totals');
+  if (!on.length) {
+    if (empty) { empty.textContent = 'All three series are hidden — switch one back on above.'; empty.style.display = ''; }
+    if (totals) totals.innerHTML = '';
+    return;
+  }
+  let labels = null;
+  const datasets = [], badges = [];
+  for (const m of on) {
+    const { labels: lb, series } = _hcaSeries(m.key, [subject], { bucketDayCount: true });
+    if (!labels) labels = lb;
+    const data = series[0] ? series[0].data : [];
+    if (!data.some(v => v !== null)) continue;
+    datasets.push({
+      label: m.title.replace(' — weighted average', ' (weighted)'),
+      data, borderColor: m.color, backgroundColor: 'transparent',
+      tension: 0.32, pointRadius: 2.5, pointHoverRadius: 6, pointBackgroundColor: m.color,
+      pointBorderColor: '#0f1729', pointBorderWidth: 1.5, borderWidth: 2.5, fill: false, spanGaps: true,
+    });
+    const last = [...data].reverse().find(v => v !== null);
+    badges.push({ color: m.color, label: m.title.split(' ')[0] === '3K' ? '3K Spend/Live' : (m.key === 'live' ? 'Spend/Live' : 'Spend/GMV'), value: last });
+  }
+  if (empty) {
+    empty.textContent = 'No data for the selected series yet.';
+    empty.style.display = datasets.length ? 'none' : '';
+  }
+  if (totals) {
+    totals.innerHTML = badges.map(b => `<span style="color:${b.color};"><b>${b.value === undefined ? '—' : b.value + '%'}</b> ${escHtml(b.label)}</span>`).join('');
+  }
+  if (!datasets.length) return;
+  hcaCharts['hca-merged'] = new Chart(cv.getContext('2d'), {
+    type: 'line', data: { labels: labels || [], datasets }, options: _hcaChartOptions(),
+  });
+}
+
+function _hcaMergedCard() {
+  const h = HC_ANALYSIS;
+  const subject = _hcaMergeSubject();
+  const gcs = h.gcs || [];
+  const chips = HCA_METRICS.map(m =>
+    `<span class="chip ${hcaMergeOn[m.key] ? 'on' : ''}" data-hca-merge="${m.key}" style="${hcaMergeOn[m.key] ? `border-color:${m.color};` : ''}">
+       <span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:${m.color};margin-right:6px;vertical-align:middle;opacity:${hcaMergeOn[m.key] ? 1 : 0.35};"></span>${escHtml(m.title.replace(' — weighted average', ''))}
+     </span>`).join('');
+  const gcPicker = hcaScope === 'gc'
+    ? `<span class="lbl" style="margin-left:14px;">GC:</span>
+       <select id="hca-merge-gc" style="padding:5px 8px;border-radius:8px;">
+         ${gcs.map(g => `<option value="${escHtml(g)}"${g === subject.key ? ' selected' : ''}>${escHtml((typeof DISPLAY !== 'undefined' && DISPLAY[g]) || g)}</option>`).join('')}
+       </select>`
+    : '';
+  return `
+    <div class="card">
+      <h3>Consolidated · All Three Metrics <span class="src-tag">${hcaGran === 'wow' ? 'WEEK ON WEEK' : 'DAY ON DAY'}</span></h3>
+      <p style="color:#475569;font-size:12px;margin:0 0 10px 0;">
+        All three trends for <b>${escHtml(subject.label)}</b> on one axis — every series is a percentage, so they are directly comparable.
+        Use the chips below (or click a legend entry) to toggle any series on and off.
+        ${hcaScope === 'gc' ? 'Showing one GC at a time — 3 metrics across 5 GCs would be 15 lines; use the charts above to compare GCs.' : ''}
+        ${hcaGran === 'wow' ? 'A <b>(Nd)</b> label marks a week with fewer than 7 stored days. A gap means that metric has too little lookback for that bucket.' : ''}
+      </p>
+      <div class="filter-bar" style="margin-bottom:10px;">
+        <span class="lbl">Series:</span>${chips}${gcPicker}
+      </div>
+      <div style="position:relative;height:380px;width:100%;">
+        <div class="chart-totals" id="hca-merged-totals"></div>
+        <canvas id="hca-merged"></canvas>
+      </div>
+      <p id="hca-merged-empty" style="display:none;color:#94a3b8;font-size:12px;text-align:center;padding:14px;">No data for the selected series yet.</p>
+    </div>`;
 }
 
 function _hcaTile(label, val, sub, src) {
@@ -11204,11 +11306,26 @@ function renderHypercareAnalysis() {
       </p>
     </div>
     ${charts}
+    ${_hcaMergedCard()}
     ${_hcaRevivedTable()}`;
 
   HCA_METRICS.forEach(_hcaDrawChart);
+  _hcaDrawMerged();
   host.querySelectorAll('[data-hca-gran]').forEach(el => el.addEventListener('click', () => { hcaGran = el.dataset.hcaGran; renderHypercareAnalysis(); }));
   host.querySelectorAll('[data-hca-scope]').forEach(el => el.addEventListener('click', () => { hcaScope = el.dataset.hcaScope; renderHypercareAnalysis(); }));
+  // Merged-chart series toggles: repaint just that chart so the page doesn't jump.
+  host.querySelectorAll('[data-hca-merge]').forEach(el => el.addEventListener('click', () => {
+    const k = el.dataset.hcaMerge;
+    hcaMergeOn[k] = !hcaMergeOn[k];
+    const m = HCA_METRICS.find(x => x.key === k);
+    el.classList.toggle('on', hcaMergeOn[k]);
+    el.style.borderColor = hcaMergeOn[k] && m ? m.color : '';
+    const dot = el.querySelector('span');
+    if (dot) dot.style.opacity = hcaMergeOn[k] ? 1 : 0.35;
+    _hcaDrawMerged();
+  }));
+  const mgc = document.getElementById('hca-merge-gc');
+  if (mgc) mgc.addEventListener('change', e => { hcaMergeGc = e.target.value; renderHypercareAnalysis(); });
   const bySel = document.getElementById('hca-rev-by');
   if (bySel) bySel.addEventListener('change', e => { hcaRevBy = e.target.value || '__all__'; renderHypercareAnalysis(); });
   const tbl = document.getElementById('hca-rev-table');
