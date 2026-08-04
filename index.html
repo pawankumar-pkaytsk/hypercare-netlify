@@ -3086,7 +3086,7 @@ const SHEETS_FAILED_PLACEHOLDER = /^FILL_IN_/;
 // Bumped on every push so the UI can show which build the user is actually
 // running. If this string doesn't match the latest deploy, the browser is
 // serving a cached/older version.
-const BUILD_VERSION = "2026-08-04 · Hypercare Analysis view (DoD/WoW trends + revived sellers)";
+const BUILD_VERSION = "2026-08-04 · Analysis: explicit WoW weighted-average note + short-week labels";
 // Optional convenience: persist file IDs to localStorage so you don't have to
 // edit the file every redeploy. If a value is set in localStorage it takes
 // precedence over the hard-coded one above. See window.hcSetSheetId() helper.
@@ -11040,6 +11040,9 @@ function _hcaSeries(metricKey, groups) {
   const usable = d => !(needsWindow && h.days[d].partialWindow);
   for (const b of buckets) {
     const bd = b.days.filter(usable);
+    // Flag short weeks (first/last bucket, or days dropped for partial lookback) so a
+    // 2-day bucket isn't read as a full week's number.
+    if (hcaGran === 'wow' && bd.length && bd.length < 7) b.label += ` (${bd.length}d)`;
     for (let i = 0; i < groups.length; i++) {
       const gk = groups[i].key;
       let val = null;
@@ -11156,10 +11159,17 @@ function renderHypercareAnalysis() {
     _hcaTile('Spend / GMV', sg && sg.pct !== null ? sg.pct + '%' : '—',
       sg ? `weighted across ${fmtNum(sg.sellers)} running sellers` : 'unavailable', 'card 10773 · latest day');
 
+  // Spell out how the week bucket is aggregated — for a ratio metric it matters that
+  // we sum the numerator and denominator, not average the daily percentages.
+  const aggNote = hcaGran === 'wow'
+    ? (m => m.key === 'spendGmv'
+        ? ' <b>Week on Week:</b> total spend across the week ÷ total GMV across that same week.'
+        : ' <b>Week on Week:</b> the week\'s live-seller days ÷ the week\'s assigned-seller days (equivalent to the mean daily rate).')
+    : (() => '');
   const charts = HCA_METRICS.map(m => `
     <div class="card">
       <h3>${escHtml(m.title)} <span class="src-tag">${hcaGran === 'wow' ? 'WEEK ON WEEK' : 'DAY ON DAY'}</span></h3>
-      <p style="color:#475569;font-size:12px;margin:0 0 10px 0;">${m.note}</p>
+      <p style="color:#475569;font-size:12px;margin:0 0 10px 0;">${m.note}${aggNote(m)}${hcaGran === 'wow' ? ' A <b>(Nd)</b> label marks a bucket with fewer than 7 usable days.' : ''}</p>
       <div style="position:relative;height:340px;width:100%;">
         <div class="chart-totals" id="${m.id}-totals"></div>
         <canvas id="${m.id}"></canvas>
