@@ -3086,7 +3086,7 @@ const SHEETS_FAILED_PLACEHOLDER = /^FILL_IN_/;
 // Bumped on every push so the UI can show which build the user is actually
 // running. If this string doesn't match the latest deploy, the browser is
 // serving a cached/older version.
-const BUILD_VERSION = "2026-08-04 · Analysis: consolidated all-three-metrics chart with per-series toggles";
+const BUILD_VERSION = "2026-08-05 · FIX spend/GMV: real gmv column, spending-seller base (was understated ~10pp)";
 // Optional convenience: persist file IDs to localStorage so you don't have to
 // edit the file every redeploy. If a value is set in localStorage it takes
 // precedence over the hard-coded one above. See window.hcSetSheetId() helper.
@@ -10999,6 +10999,13 @@ let hcaRevBy = '__all__';   // revived-sellers table: filter on "revived by"
 // All three are percentages of comparable magnitude, so they share one y axis.
 let hcaMergeOn = { live: true, live3k: true, spendGmv: true };
 let hcaMergeGc = null;      // null → team aggregate; set to a GC name in GC mode
+// Which seller base the Spend/GMV weighted average runs over.
+//   'spenders' → every seller who spent that day  (the reported default)
+//   'qual3k'   → only those also above ₹3,540 over the trailing 7 days
+let hcaSgBase = 'spenders';
+function _hcaMetricKey(m) {
+  return m.key === 'spendGmv' ? (hcaSgBase === 'qual3k' ? 'spendGmv3k' : 'spendGmv') : m.key;
+}
 
 const HCA_METRICS = [
   { key: 'live', id: 'hca-live', title: 'Spend / Live Trend',
@@ -11006,7 +11013,7 @@ const HCA_METRICS = [
   { key: 'live3k', id: 'hca-3k', title: '3K Spend / Live Trend',
     note: 'Sellers whose trailing-7-day spend crossed ₹3,540 ÷ assigned sellers.', color: '#a78bfa' },
   { key: 'spendGmv', id: 'hca-sgmv', title: 'Spend / GMV — weighted average',
-    note: 'Σ spend ÷ Σ GMV across running sellers (trailing-7-day spend > ₹3,540). A true weighted average, not a mean of per-seller ratios.', color: '#f59e0b' },
+    note: 'Σ spend ÷ Σ GMV over <b>sellers who spent that day</b> — a true weighted average, not a mean of per-seller ratios. GMV comes straight from card 10773\'s <code>gmv</code> column, and a seller who spent but returned zero GMV is counted (spend in, no GMV out) so the ratio is not flattered.', color: '#f59e0b' },
 ];
 const HCA_GC_COLORS = ['#22d3ee', '#a78bfa', '#f472b6', '#34d399', '#fbbf24', '#60a5fa', '#fb7185'];
 
@@ -11027,7 +11034,11 @@ function _hcaWeekLabel(key, isoDate) {
 function _hcaSeries(metricKey, groups, opts) {
   const h = HC_ANALYSIS;
   if (!h || !h.days) return { labels: [], series: [] };
-  const days = Object.keys(h.days).sort();
+  // Only days carrying the 10773-derived series. A day can exist with ONLY the
+  // point-in-time *Auth captures (refresh-analysis.yml runs without pulling 10773, and
+  // the full refresh may not have covered that date yet) — plotting those would append a
+  // phantom trailing gap to every chart.
+  const days = Object.keys(h.days).filter(d => h.days[d].live).sort();
   if (!days.length) return { labels: [], series: [] };
   const buckets = [];        // [{label, days:[iso]}]
   if (hcaGran === 'wow') {
@@ -11041,10 +11052,11 @@ function _hcaSeries(metricKey, groups, opts) {
     for (const d of days) buckets.push({ label: fmtDDMMYY(d) || d, days: [d] });
   }
   const series = groups.map(g => ({ key: g.key, label: g.label, data: [] }));
-  // live3k and spendGmv both qualify sellers on a TRAILING 7-day spend window, so
-  // the first few stored days (which have less than 7 days of lookback) understate
-  // them badly — plot them as gaps rather than as real dips.
-  const needsWindow = (metricKey === 'live3k' || metricKey === 'spendGmv');
+  // These qualify sellers on a TRAILING 7-day spend window, so the first few stored days
+  // (with less than 7 days of lookback) understate them badly — plot those as gaps rather
+  // than as real dips. Note `spendGmv` is NOT in this set: its base is simply "sellers who
+  // spent that day", which needs no lookback, so it plots from day one.
+  const needsWindow = (metricKey === 'live3k' || metricKey === 'spendGmv3k');
   const usable = d => !(needsWindow && h.days[d].partialWindow);
   for (const b of buckets) {
     const bd = b.days.filter(usable);
@@ -11058,10 +11070,13 @@ function _hcaSeries(metricKey, groups, opts) {
     for (let i = 0; i < groups.length; i++) {
       const gk = groups[i].key;
       let val = null;
-      if (metricKey === 'spendGmv') {
+      // Both spend/GMV bases are ratio metrics carrying spend+gmv totals; the other two
+      // are count metrics carrying n+assigned. Matching the exact string here meant
+      // spendGmv3k silently fell through to the count branch and read all nulls.
+      if (metricKey === 'spendGmv' || metricKey === 'spendGmv3k') {
         let s = 0, gm = 0, any = false;
         for (const d of bd) {
-          const r = (h.days[d].spendGmv || {})[gk];
+          const r = (h.days[d][metricKey] || {})[gk];
           if (r && typeof r.spend === 'number' && typeof r.gmv === 'number' && r.gmv > 0) { s += r.spend; gm += r.gmv; any = true; }
         }
         val = any && gm > 0 ? +(100 * s / gm).toFixed(2) : null;
@@ -11116,7 +11131,7 @@ function _hcaDrawChart(m) {
   if (!cv) return;
   if (hcaCharts[m.id]) { try { hcaCharts[m.id].destroy(); } catch (e) {} delete hcaCharts[m.id]; }
   const groups = _hcaGroups();
-  const { labels, series } = _hcaSeries(m.key, groups);
+  const { labels, series } = _hcaSeries(_hcaMetricKey(m), groups);
   const empty = document.getElementById(m.id + '-empty');
   const hasAny = series.some(s => s.data.some(v => v !== null));
   if (empty) empty.style.display = hasAny ? 'none' : '';
@@ -11170,7 +11185,7 @@ function _hcaDrawMerged() {
   let labels = null;
   const datasets = [], badges = [];
   for (const m of on) {
-    const { labels: lb, series } = _hcaSeries(m.key, [subject], { bucketDayCount: true });
+    const { labels: lb, series } = _hcaSeries(_hcaMetricKey(m), [subject], { bucketDayCount: true });
     if (!labels) labels = lb;
     const data = series[0] ? series[0].data : [];
     if (!data.some(v => v !== null)) continue;
@@ -11251,7 +11266,7 @@ function renderHypercareAnalysis() {
   const days = Object.keys(h.days).sort();
   const sl = (L.spendLive || {})[T];
   const s3 = (L.spend3kLive || {})[T];
-  const sg = (L.spendGmv || {})[T];
+  const sg = ((hcaSgBase === 'qual3k' ? L.spendGmv3k : L.spendGmv) || {})[T];
   const tiles =
     _hcaTile('Assigned Sellers', fmtNum(h.assigned ? h.assigned[T] : 0), `${(h.gcs || []).length} GCs in hypercare`, 'card 12477') +
     _hcaTile('Spend / Live', sl && sl.pct !== null ? sl.pct + '%' : '—',
@@ -11259,7 +11274,7 @@ function renderHypercareAnalysis() {
     _hcaTile('3K Spend / Live', s3 && s3.pct !== null ? s3.pct + '%' : '—',
       s3 ? `${fmtNum(s3.n)} of ${fmtNum(s3.assigned)} above ₹3,540 / 7d` : 'unavailable', 'card 7669 · last 7 days') +
     _hcaTile('Spend / GMV', sg && sg.pct !== null ? sg.pct + '%' : '—',
-      sg ? `weighted across ${fmtNum(sg.sellers)} running sellers` : 'unavailable', 'card 10773 · latest day');
+      sg ? `weighted across ${fmtNum(sg.sellers)} ${hcaSgBase === 'qual3k' ? '₹3.5K+ sellers' : 'spending sellers'}` : 'unavailable', 'card 10773 · latest day');
 
   // Spell out how the week bucket is aggregated — for a ratio metric it matters that
   // we sum the numerator and denominator, not average the daily percentages.
@@ -11272,6 +11287,11 @@ function renderHypercareAnalysis() {
     <div class="card">
       <h3>${escHtml(m.title)} <span class="src-tag">${hcaGran === 'wow' ? 'WEEK ON WEEK' : 'DAY ON DAY'}</span></h3>
       <p style="color:#475569;font-size:12px;margin:0 0 10px 0;">${m.note}${aggNote(m)}${hcaGran === 'wow' ? ' A <b>(Nd)</b> label marks a bucket with fewer than 7 usable days.' : ''}</p>
+      ${m.key === 'spendGmv' ? `<div class="filter-bar" style="margin-bottom:10px;">
+        <span class="lbl">Seller base:</span>
+        <span class="chip ${hcaSgBase === 'spenders' ? 'on' : ''}" data-hca-sgbase="spenders">Spent that day</span>
+        <span class="chip ${hcaSgBase === 'qual3k' ? 'on' : ''}" data-hca-sgbase="qual3k">Above ₹3,540 / 7d</span>
+      </div>` : ''}
       <div style="position:relative;height:340px;width:100%;">
         <div class="chart-totals" id="${m.id}-totals"></div>
         <canvas id="${m.id}"></canvas>
@@ -11324,6 +11344,7 @@ function renderHypercareAnalysis() {
     if (dot) dot.style.opacity = hcaMergeOn[k] ? 1 : 0.35;
     _hcaDrawMerged();
   }));
+  host.querySelectorAll('[data-hca-sgbase]').forEach(el => el.addEventListener('click', () => { hcaSgBase = el.dataset.hcaSgbase; renderHypercareAnalysis(); }));
   const mgc = document.getElementById('hca-merge-gc');
   if (mgc) mgc.addEventListener('change', e => { hcaMergeGc = e.target.value; renderHypercareAnalysis(); });
   const bySel = document.getElementById('hca-rev-by');

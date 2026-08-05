@@ -619,7 +619,7 @@ def build_hypercare_analysis(url, H, dm_rows=None, revival_bySeller=None, trend=
     # and restricting this map made their spend_after read 0 instead of unknown.
     # The metric loops below iterate gc_by, so the extra sellers can't leak in.
     spend = {}      # sid -> {date: spend}   (all sellers)
-    sgmv = {}       # sid -> {date: spend_gmv}
+    gmv = {}        # sid -> {date: gmv}
     all_days = set()
     for r in (dm_rows or []):
         sid = str(_hc_get(r, 0, 'seller_id') or '').strip()
@@ -629,10 +629,15 @@ def build_hypercare_analysis(url, H, dm_rows=None, revival_bySeller=None, trend=
         if len(d) != 10 or d[4] != '-':
             continue
         sp = _spend_num(_hc_get(r, 2, 'spend'))
-        sg = _spend_num(_hc_get(r, 9, 'spend_gmv'))
+        # Card 10773 exposes GMV directly (col 8). Use it rather than reconstructing it
+        # from the s_gmv ratio: s_gmv is NULL whenever gmv is 0, so a ratio-based
+        # reconstruction silently drops every seller who spent and returned nothing —
+        # i.e. exactly the worst performers — and reports a far rosier number.
+        # (Verified: s_gmv == 100*spend/gmv on the daily grain to 6dp, so the "weekly"
+        # note in mb/parsers.mjs is stale.)
+        gm = _spend_num(_hc_get(r, 8, 'gmv'))
         spend.setdefault(sid, {})[d] = spend.get(sid, {}).get(d, 0.0) + sp
-        if sg > 0:
-            sgmv.setdefault(sid, {})[d] = sg
+        gmv.setdefault(sid, {})[d] = gmv.get(sid, {}).get(d, 0.0) + gm
         all_days.add(d)
     days = sorted(all_days)
     if trend and not days:
@@ -645,16 +650,18 @@ def build_hypercare_analysis(url, H, dm_rows=None, revival_bySeller=None, trend=
         partial = len(window) < HC_WINDOW      # not enough lookback for a true 7d sum
         # per-seller day spend + trailing-window spend — universe sellers ONLY,
         # so the team aggregate can never pick up a non-hypercare seller.
-        live_ids, qual_ids = set(), set()
+        live_ids, qual_ids, spender_ids = set(), set(), set()
         for sid in gc_by:
             byd = spend.get(sid)
             if not byd:
                 continue
             if byd.get(d, 0.0) > HC_LIVE_MIN:
                 live_ids.add(sid)
+            if byd.get(d, 0.0) > 0:
+                spender_ids.add(sid)
             if sum(byd.get(w, 0.0) for w in window) > HC_3K_MIN:
                 qual_ids.add(sid)
-        rec_live, rec_3k, rec_sg = {}, {}, {}
+        rec_live, rec_3k, rec_sg, rec_sg3 = {}, {}, {}, {}
         for g in groups:
             def _in(sid, _g=g):
                 return True if _g == HC_TEAM else gc_by.get(sid) == _g
@@ -662,25 +669,34 @@ def build_hypercare_analysis(url, H, dm_rows=None, revival_bySeller=None, trend=
             n_3k = sum(1 for s in qual_ids if _in(s))
             rec_live[g] = {'n': n_live, 'assigned': assigned[g], 'pct': _hc_ratio(n_live, assigned[g])}
             rec_3k[g] = {'n': n_3k, 'assigned': assigned[g], 'pct': _hc_ratio(n_3k, assigned[g])}
-            # Weighted spend/GMV over the qualifying ("running") sellers only:
-            # implied GMV_i = spend_i / (spend_gmv_i/100) → ratio = Σspend / ΣGMV.
-            tot_s = tot_g = 0.0
-            for s in qual_ids:
-                if not _in(s):
-                    continue
-                sp = spend.get(s, {}).get(d, 0.0)
-                sg = sgmv.get(s, {}).get(d, 0.0)
-                if sp > 0 and sg > 0:
-                    tot_s += sp
-                    tot_g += sp / (sg / 100.0)
+            # Weighted spend/GMV = Σspend / ΣGMV. Two bases, both over SPENDING sellers
+            # only (spend > 0 that day) — a seller who didn't spend would otherwise add
+            # organic GMV to the denominator with no spend and flatter the ratio:
+            #   spendGmv    → every spending seller in the group   (the reported metric)
+            #   spendGmv3k  → spending sellers that also cleared ₹3,540 over 7 days
+            # A spender whose GMV is 0 MUST be counted: their spend enters the numerator
+            # and nothing enters the denominator, which correctly worsens the ratio.
             # Keep the raw totals, not just the ratio: a Week-on-Week spend/GMV is
             # Σspend / ΣGMV over the week, which cannot be recovered from daily
-            # percentages (averaging ratios ≠ ratio of sums). The dashboard
-            # aggregates these to whatever granularity it renders.
-            rec_sg[g] = {'pct': round(100.0 * tot_s / tot_g, 2) if tot_g > 0 else None,
-                         'spend': round(tot_s, 2), 'gmv': round(tot_g, 2),
-                         'sellers': sum(1 for s in qual_ids if _in(s))}
-        computed[d] = {'live': rec_live, 'live3k': rec_3k, 'spendGmv': rec_sg,
+            # percentages (averaging ratios ≠ ratio of sums).
+            def _sgmv(ids):
+                ts = tg = 0.0
+                n = 0
+                for s in ids:
+                    if not _in(s):
+                        continue
+                    sp = spend.get(s, {}).get(d, 0.0)
+                    if sp <= 0:
+                        continue
+                    ts += sp
+                    tg += gmv.get(s, {}).get(d, 0.0)
+                    n += 1
+                return {'pct': round(100.0 * ts / tg, 2) if tg > 0 else None,
+                        'spend': round(ts, 2), 'gmv': round(tg, 2), 'sellers': n}
+            rec_sg[g] = _sgmv(spender_ids)
+            rec_sg3[g] = _sgmv(qual_ids)
+        computed[d] = {'live': rec_live, 'live3k': rec_3k,
+                       'spendGmv': rec_sg, 'spendGmv3k': rec_sg3,
                        'src': '10773', 'partialWindow': partial}
 
     # ---- point-in-time captures from the authoritative cards ----------------
@@ -754,12 +770,15 @@ def build_hypercare_analysis(url, H, dm_rows=None, revival_bySeller=None, trend=
             'spendLive': auth_live,      # card 2787 · yesterday_spend > 1
             'spend3kLive': auth_3k,      # card 7669 · google+fb last 7d > 3540
             'spendGmv': computed[days[-1]]['spendGmv'] if days else prev_latest.get('spendGmv'),
+            'spendGmv3k': computed[days[-1]]['spendGmv3k'] if days else prev_latest.get('spendGmv3k'),
         },
         'sources': {
             'universe': 'card 12477 (all hypercare sellers · assigned denominator)',
             'trend': 'card 10773 (day-wise spend + spend_gmv) — rolling ~31d window',
             'spendLive': 'card 2787 (yesterday_spend > 1)',
             'spend3kLive': 'card 7669 (google+fb last 7 days > 3540)',
+            'spendGmv': 'card 10773 Σspend/Σgmv over sellers who spent that day',
+            'spendGmv3k': 'same, restricted to sellers above 3540 over 7 days',
         },
         'days': hdays,
     }
