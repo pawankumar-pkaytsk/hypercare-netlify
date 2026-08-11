@@ -1,32 +1,32 @@
 {
-  "generatedAt": "2026-08-10T05:32:43.853Z",
+  "generatedAt": "2026-08-11T05:14:49.318Z",
   "sources": {
     "calling": {
-      "bytes": 27620263
+      "bytes": 28022800
     },
     "tasks": {
-      "bytes": 7351418
+      "bytes": 7440191
     },
     "troubleshoot": {
-      "bytes": 6053228
+      "bytes": 5870998
     },
     "chatReply": {
-      "bytes": 906634
+      "bytes": 913198
     },
     "unassignment": {
-      "bytes": 1280086
+      "bytes": 1292805
     },
     "dailyARR": {
-      "bytes": 29611854
+      "bytes": 29686977
     },
     "experimental": {
-      "bytes": 45199
+      "bytes": 45550
     },
     "gcv3Dump": {
-      "bytes": 7820152
+      "bytes": 7819281
     },
     "dailyMetrics": {
-      "bytes": 15167493
+      "bytes": 15201074
     }
   }
 }
