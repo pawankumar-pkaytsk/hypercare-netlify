@@ -3086,7 +3086,7 @@ const SHEETS_FAILED_PLACEHOLDER = /^FILL_IN_/;
 // Bumped on every push so the UI can show which build the user is actually
 // running. If this string doesn't match the latest deploy, the browser is
 // serving a cached/older version.
-const BUILD_VERSION = "2026-08-05 · FIX spend/GMV: real gmv column, spending-seller base (was understated ~10pp)";
+const BUILD_VERSION = "2026-08-31 · Refresh now re-pulls the Metabase feeds (stale-week banner no longer needs a page reload)";
 // Optional convenience: persist file IDs to localStorage so you don't have to
 // edit the file every redeploy. If a value is set in localStorage it takes
 // precedence over the hard-coded one above. See window.hcSetSheetId() helper.
@@ -4836,8 +4836,15 @@ function _reviveDates(v) {
   for (const k of keys) v[k] = _reviveDates(v[k]);
   return v;
 }
-async function loadAggregates() {
-  if (HC_AGG_LOADED) return HC_AGG;
+// force=true re-pulls every Metabase feed even if they were already loaded.
+// WHY: without it these feeds are fetched ONCE per page load, so "Refresh now"
+// re-pulled the Google Sheets but left the Metabase snapshots frozen at whatever
+// the tab loaded with. On a Monday that meant the ISO-week staleness banner stayed
+// up until the user did a full browser reload, even after the server-side snapshot
+// had already been corrected.
+async function loadAggregates(force) {
+  if (HC_AGG_LOADED && !force) return HC_AGG;
+  if (force) HC_AGG = {};
   HC_AGG_LOADED = true;
   let manifest = null;
   try {
@@ -4884,7 +4891,7 @@ async function loadAggregates() {
   return HC_AGG;
 }
 
-async function fetchSheets() {
+async function fetchSheets(opts) {
   // ============================================================
   // PARALLEL FETCH — all sheets in flight at once.
   // ⚠ Do NOT revert this to sequential awaits — it makes first-load go from
@@ -4899,7 +4906,7 @@ async function fetchSheets() {
   setStatus("loading", "Loading…");
   // Load the static Metabase snapshot first (no auth). Sources present here are
   // served from the snapshot; the rest fall through to Google Sheets below.
-  await loadAggregates();
+  await loadAggregates(opts && opts.forceAggregates);
   // Progress counts only sources fetched LIVE from Google — the Metabase
   // snapshot sources (in HC_AGG) are already loaded, so they don't count.
   const _SHEET_COUNT = 22 - Object.keys(HC_AGG).length;
@@ -5108,7 +5115,7 @@ async function refresh() {
   }
   META.fetching = true; META.error = null; updateMetaBar();
   try {
-    const payload = await fetchSheets();
+    const payload = await fetchSheets({ forceAggregates: true });
     DATA = payload.mkt; REVIVAL = payload.revival; SCALING = payload.scaling || null; CACHED_PAYLOAD = payload;
     _EXPERIMENTAL_SET = null;  // force rebuild on next render
     _PQ_BY_SELLER = null;
@@ -5242,7 +5249,7 @@ function mktStaleBanner() {
   return `<div style="display:flex;gap:8px;align-items:flex-start;background:#fffbeb;border:1px solid #fcd34d;color:#92400e;border-radius:10px;padding:9px 12px;margin:0 0 10px 0;font-size:12px;font-weight:600;line-height:1.45;">
     <span style="font-size:14px;line-height:1.2;">⚠️</span>
     <span>Weekly PNL/spend is <b>${n} week${n > 1 ? "s" : ""} behind</b> — these columns are <b>${escHtml(st.label)}</b>, not the current week.
-    Card 11011's week windows roll every Monday 00:00 UTC; the snapshot hasn't refreshed since. It self-corrects on the next refresh (Refresh now won't fix it — the snapshot is rebuilt server-side).</span>
+    Card 11011's week windows roll every Monday 00:00 UTC; the snapshot hasn't refreshed since. Hit <b>Refresh now</b> — it re-pulls the server-side snapshot — or wait for the next scheduled refresh.</span>
   </div>`;
 }
 
