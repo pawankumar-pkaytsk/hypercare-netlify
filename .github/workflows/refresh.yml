@@ -4,7 +4,9 @@ name: Refresh Hypercare snapshot
 # redeploys. Runs in GitHub's cloud (no Mac needed). Also runnable on demand.
 on:
   schedule:
-    - cron: "0 4 * * *"   # 04:00 UTC = 09:30 IST (after the 4 AM backend sync)
+    - cron: "13 4 * * *"  # 04:13 UTC = 09:43 IST (after the 4 AM backend sync).
+    #                       Off-the-hour on purpose: :00 slots are the most contended
+    #                       on GitHub and this job was landing ~5h late (see refresh-marketing.yml).
   workflow_dispatch: {}
 
 # Prevent overlapping runs.

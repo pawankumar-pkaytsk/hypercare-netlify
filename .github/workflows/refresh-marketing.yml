@@ -7,9 +7,16 @@ name: Refresh marketing snapshot
 # for most of Monday morning IST.
 on:
   schedule:
-    - cron: "0 1 * * *"    # 06:30 IST — right after the Monday 00:00 UTC rollover
-    - cron: "0 7 * * *"    # 12:30 IST
-    - cron: "0 13 * * *"   # 18:30 IST
+    # Minutes are deliberately NOT :00. GitHub queues scheduled workflows by load and
+    # on-the-hour slots are the most contended: with "0 1 * * *" this job was landing
+    # ~5h late (01:00 -> 06:07, 07:00 -> 12:24, 13:00 -> 17:14 on 2026-08-30), which
+    # meant the Monday ISO-week rollover was not picked up until mid-morning IST and
+    # users saw the amber "1 week behind" banner all morning. Off-peak minutes get
+    # picked up far closer to schedule.
+    - cron: "23 0 * * *"   # 05:53 IST — minutes after the Monday 00:00 UTC rollover
+    - cron: "37 2 * * 1"   # 08:07 IST, MONDAY ONLY — backstop if the 00:23 run is delayed
+    - cron: "19 6 * * *"   # 11:49 IST
+    - cron: "41 12 * * *"  # 18:11 IST
   workflow_dispatch: {}
 
 # Share the full-refresh lock so the two jobs never race on push.

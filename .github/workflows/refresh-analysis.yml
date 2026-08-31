@@ -17,7 +17,8 @@ name: Capture analysis history
 # it twice a day.
 on:
   schedule:
-    - cron: "0 17 * * *"   # 22:30 IST — late enough that a failed morning refresh is already known
+    - cron: "43 17 * * *"  # 22:43 IST — late enough that a failed morning refresh is already known.
+    #                        Off-the-hour on purpose (see refresh-marketing.yml).
   workflow_dispatch: {}
 
 # Share the full-refresh lock so the jobs never race on push.
