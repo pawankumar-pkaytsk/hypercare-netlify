@@ -210,8 +210,7 @@ def build_revival_spend(url, H):
 # Mirror of the dashboard's MKT_GCS. Removed Nishan Bandekar (left org 2026-07);
 # added Tanaya Gore + Sargunpreet Singh (joined 2026-07). Names are canonicalized
 # (card 7753 growth_consultant_name has stray double spaces).
-MKT_GCS = ["Aaruni Vaidya", "Sadiya Rajgoli", "Nikita S GC", "Dev Vashisth",
-           "Tanaya Gore", "Sargunpreet Singh"]
+MKT_GCS = ["Nikita S GC", "Tanaya Gore", "Sargunpreet Singh"]
 
 # Some GCs appear under name variants in card 7753 → collapse to one MKT_GCS entry.
 # Nikita Sinha shows up as "Nikita S", "Nikita S GC" and "Nikita Sinha".

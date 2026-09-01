@@ -2770,10 +2770,7 @@
     <div class="filter-bar" id="mkt-filter">
       <span class="lbl">Filter by GC:</span>
       <span class="chip all on" data-gc="__all__">Select All</span>
-      <span class="chip on" data-gc="Aaruni Vaidya">Aaruni Vaidya</span>
-      <span class="chip on" data-gc="Sadiya Rajgoli">Sadiya Rajgoli</span>
       <span class="chip on" data-gc="Nikita S GC">Nikita Sinha</span>
-      <span class="chip on" data-gc="Dev Vashisth">Dev Vashisth</span>
       <span class="chip on" data-gc="Tanaya Gore">Tanaya Gore</span>
       <span class="chip on" data-gc="Sargunpreet Singh">Sargunpreet Singh</span>
     </div>
@@ -3086,7 +3083,7 @@ const SHEETS_FAILED_PLACEHOLDER = /^FILL_IN_/;
 // Bumped on every push so the UI can show which build the user is actually
 // running. If this string doesn't match the latest deploy, the browser is
 // serving a cached/older version.
-const BUILD_VERSION = "2026-08-31 · Refresh now re-pulls the Metabase feeds (stale-week banner no longer needs a page reload)";
+const BUILD_VERSION = "2026-08-31 · Marketing roster: 3 GCs (removed Aaruni Vaidya, Dev Vashisth, Sadiya Rajgoli)";
 // Optional convenience: persist file IDs to localStorage so you don't have to
 // edit the file every redeploy. If a value is set in localStorage it takes
 // precedence over the hard-coded one above. See window.hcSetSheetId() helper.
@@ -3125,10 +3122,7 @@ let GIS_READY = false;
 // Owner-name substrings used to map a task's owner-name column to one of our GCs.
 // Match is case-insensitive substring on the task's "Task owner name" (col G).
 const MKT_OWNER_PATTERNS = {
-  "Aaruni Vaidya":     ["aaruni"],
-  "Sadiya Rajgoli":    ["sadiya"],
   "Nikita S GC":       ["nikita"],
-  "Dev Vashisth":      ["dev vashisth", "vashisth"],
   "Tanaya Gore":       ["tanaya"],
   "Sargunpreet Singh": ["sargun"],
 };
@@ -3150,7 +3144,10 @@ const TS_SPEND_THRESHOLD = 3540;
 const TS_DAYS_THRESHOLD = 7;
 const SPEND_THRESHOLD = 3540;
 const ACTIVE_DAYS = 45;
-const MKT_GCS = ["Aaruni Vaidya","Sadiya Rajgoli","Nikita S GC","Dev Vashisth","Tanaya Gore","Sargunpreet Singh"];
+// Roster as of 2026-08-31. Removed: Aaruni Vaidya (GM, never a working GC),
+// Dev Vashisth (left the org), Sadiya Rajgoli (moved teams). All three had already
+// dropped out of card 12477 upstream; this keeps the Marketing scope in step.
+const MKT_GCS = ["Nikita S GC","Tanaya Gore","Sargunpreet Singh"];
 const REV_GCS = ["Aanchal Agrawal","Vishal Thapa","Debasish Das","Kavita Rai"];
 // GCs to exclude from every revival report (data-driven views too, e.g. GC-wise
 // Revival Compliance where GC names come from card 7753).
