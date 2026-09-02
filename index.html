@@ -3083,7 +3083,7 @@ const SHEETS_FAILED_PLACEHOLDER = /^FILL_IN_/;
 // Bumped on every push so the UI can show which build the user is actually
 // running. If this string doesn't match the latest deploy, the browser is
 // serving a cached/older version.
-const BUILD_VERSION = "2026-09-01 · FIX unassignment mismatch: Consolidated + Actions charts now use the same row universe";
+const BUILD_VERSION = "2026-09-01 · Scaling delisted from the UI (backend pipeline untouched)";
 // Optional convenience: persist file IDs to localStorage so you don't have to
 // edit the file every redeploy. If a value is set in localStorage it takes
 // precedence over the hard-coded one above. See window.hcSetSheetId() helper.
@@ -3152,6 +3152,13 @@ const REV_GCS = ["Aanchal Agrawal","Vishal Thapa","Debasish Das","Kavita Rai"];
 // GCs to exclude from every revival report (data-driven views too, e.g. GC-wise
 // Revival Compliance where GC names come from card 7753).
 const REV_EXCLUDE_GCS = ["sejal negi", "faraz pasha"];
+// Scaling is DELISTED FROM THE UI as of 2026-09-01 — Sankhajit Ghosh no longer maps
+// under this GM. This hides the nav tab, the homepage tile and the view itself.
+// The BACKEND IS DELIBERATELY UNTOUCHED: snapshot.py, the SHEETS entries, the
+// parsers, SCA_GCS/SCA_OWNER_PATTERNS and renderScaling() all still exist, and the
+// scaling payload keeps being fetched. Flip this back to true to restore the section
+// in one edit — do not delete the Scaling code.
+const SHOW_SCALING = false;
 const SCA_GCS = ["Sankhajit Ghosh"];
 const SCA_OWNER_PATTERNS = {
   "Sankhajit Ghosh": ["sankhajit"],
@@ -8933,6 +8940,7 @@ function renderCampaignTrack(opts) {
 }
 
 function renderScaling() {
+  if (!SHOW_SCALING) return;   // delisted — see SHOW_SCALING
   if (!SCALING) {
     document.getElementById('view-Scaling').querySelector('#sub-sca-seller').innerHTML =
       `<div class="card"><h3>Scaling team <span class="pending-tag">LOADING</span></h3><div class="pending-card"><h4>Loading…</h4></div></div>`;
@@ -11457,6 +11465,8 @@ function _hcaRevivedTable() {
 
 // Switch the active workspace. Used by both the top tab bar AND the homepage tiles.
 function activateTeam(team) {
+  // Delisted workspaces fall back to Home rather than opening an empty view.
+  if (team === "Scaling" && !SHOW_SCALING) team = "Home";
   document.querySelectorAll(".tabs .tab").forEach(b => b.classList.remove("active"));
   document.querySelectorAll("#view-Home, #view-Scaling, #view-Marketing, #view-Unassignment, #view-Revival, #view-Daily, #view-CallHistory, #view-HITSRecovery, #view-HypercareAnalysis, #view-Creatives").forEach(v => v.classList.remove("active"));
   const tabBtn = document.querySelector(`.tabs .tab[data-team="${team}"]`);
@@ -11472,6 +11482,11 @@ function activateTeam(team) {
   if (team === "HITSRecovery") renderHITSRecovery();
   if (team === "HypercareAnalysis") renderHypercareAnalysis();
   if (team === "Creatives") renderCreativesTracker();
+}
+// Strip delisted workspaces out of the DOM so they cannot be clicked or tabbed to.
+if (!SHOW_SCALING) {
+  document.querySelectorAll('.tabs .tab[data-team="Scaling"], #home-grid .home-tile[data-team="Scaling"]')
+    .forEach(el => el.remove());
 }
 document.querySelectorAll(".tabs .tab").forEach(btn => {
   btn.addEventListener("click", () => activateTeam(btn.dataset.team));
