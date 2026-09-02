@@ -2819,7 +2819,7 @@
   <div id="view-Creatives" class="view"></div>
 
   <p class="footer-note">
-    Bucket rules — &gt;-20: PNL W-1 &gt; -20 + Spend W-1 &gt; 3540 · Potential Hit: PNL ≥ 5 + Spend &gt; 3540 ·
+    Bucket rules — &gt;-30: PNL W-1 &gt; -30 + Spend W-1 &gt; 3540 · &gt;-20: PNL W-1 &gt; -20 + Spend W-1 &gt; 3540 · Potential Hit: PNL ≥ 5 + Spend &gt; 3540 ·
     Objective Hit: PNL ≥ 5 in W-1 &amp; W-2 + Spend &gt; 3540 in both ·
     Subjective Hit: PNL ≥ 5 in W-1, PNL &gt; 3 in W-2, Spend &gt; 3540 in both ·
     Missed Hit: PNL ≥ 5 in W-2 &amp; W-3 + Spend &gt; 3540 in both.
@@ -3083,7 +3083,7 @@ const SHEETS_FAILED_PLACEHOLDER = /^FILL_IN_/;
 // Bumped on every push so the UI can show which build the user is actually
 // running. If this string doesn't match the latest deploy, the browser is
 // serving a cached/older version.
-const BUILD_VERSION = "2026-08-31 · Marketing roster: 3 GCs (removed Aaruni Vaidya, Dev Vashisth, Sadiya Rajgoli)";
+const BUILD_VERSION = "2026-09-01 · Bucket Health: added >-30 bucket (same spend rule)";
 // Optional convenience: persist file IDs to localStorage so you don't have to
 // edit the file every redeploy. If a value is set in localStorage it takes
 // precedence over the hard-coded one above. See window.hcSetSheetId() helper.
@@ -5335,7 +5335,13 @@ function renderSellerView() {
     </div>`;
 }
 
+// NOTE: these predicates are INDEPENDENT and overlapping, not mutually exclusive —
+// a seller with PNL 10 matches ">-30", ">-20" and "Potential Hit" at once. ">-30" is
+// therefore a superset of ">-20" (same spend rule, wider PNL floor), matching how
+// ">-20" already works. If you ever need an exclusive -30..-20 band, add a separate
+// predicate rather than changing these.
 const BUCKETS = {
+  ">-30":          s => s.pnl_w20 != null && s.pnl_w20 > -30 && s.spend_w20 != null && s.spend_w20 > SPEND_THRESHOLD,
   ">-20":          s => s.pnl_w20 != null && s.pnl_w20 > -20 && s.spend_w20 != null && s.spend_w20 > SPEND_THRESHOLD,
   "Potential Hit": s => s.pnl_w20 != null && s.pnl_w20 > 5  && s.spend_w20 != null && s.spend_w20 > SPEND_THRESHOLD,
   "Objective Hit": s => s.pnl_w20 != null && s.pnl_w20 > 5 && s.pnl_w19 != null && s.pnl_w19 > 5 && s.spend_w20 != null && s.spend_w20 > SPEND_THRESHOLD && s.spend_w19 != null && s.spend_w19 > SPEND_THRESHOLD,
@@ -5353,7 +5359,7 @@ function renderBucketHealth() {
   if (activeBucketFilter !== "__all__") sellers = all.filter(BUCKETS[activeBucketFilter]);
   const counts = { "__all__": all.length };
   for (const [k, fn] of Object.entries(BUCKETS)) counts[k] = all.filter(fn).length;
-  const dd = ["__all__",">-20","Potential Hit","Objective Hit","Subjective Hit","Missed Hit"]
+  const dd = ["__all__",">-30",">-20","Potential Hit","Objective Hit","Subjective Hit","Missed Hit"]
     .map(k => `<option value="${k}"${activeBucketFilter===k?' selected':''}>${k === '__all__' ? 'All sellers' : k}  (${counts[k]})</option>`).join('');
   const wL = DATA.week_labels || ['W-1','W-2','W-3'];
   const tbl = `<div class="tbl-wrap"><table class="t"><thead><tr>
@@ -8013,7 +8019,7 @@ function scaRenderBucketHealth() {
   if (scaActiveBucketFilter !== "__all__") sellers = all.filter(BUCKETS[scaActiveBucketFilter]);
   const counts = { "__all__": all.length };
   for (const [k, fn] of Object.entries(BUCKETS)) counts[k] = all.filter(fn).length;
-  const dd = ["__all__",">-20","Potential Hit","Objective Hit","Subjective Hit","Missed Hit"]
+  const dd = ["__all__",">-30",">-20","Potential Hit","Objective Hit","Subjective Hit","Missed Hit"]
     .map(k => `<option value="${k}"${scaActiveBucketFilter===k?' selected':''}>${k === '__all__' ? 'All sellers' : k}  (${counts[k]})</option>`).join('');
   const wL = SCALING.week_labels || ['W-1','W-2','W-3'];
   const tbl = `<div class="tbl-wrap"><table class="t"><thead><tr>
