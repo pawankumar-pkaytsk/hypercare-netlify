@@ -3083,7 +3083,7 @@ const SHEETS_FAILED_PLACEHOLDER = /^FILL_IN_/;
 // Bumped on every push so the UI can show which build the user is actually
 // running. If this string doesn't match the latest deploy, the browser is
 // serving a cached/older version.
-const BUILD_VERSION = "2026-09-01 · Bucket Health: added >-30 bucket (same spend rule)";
+const BUILD_VERSION = "2026-09-01 · FIX unassignment mismatch: Consolidated + Actions charts now use the same row universe";
 // Optional convenience: persist file IDs to localStorage so you don't have to
 // edit the file every redeploy. If a value is set in localStorage it takes
 // precedence over the hard-coded one above. See window.hcSetSheetId() helper.
@@ -10705,6 +10705,15 @@ function _unasChartRows(data) {
   const weeksSet = new Set(data.weeksInRange);
   const useWeek = (unasFilterMode === 'week');
   return (data.allRows || []).filter(r => {
+    // Apply the SAME two exclusions buildUnassignmentData() applies when it builds
+    // allFilteredRows, so every chart in this section counts one population.
+    // Without these, this function read the untouched `allRows` and the Consolidated
+    // chart reported ~300 more "unassignments" for a 5-week range than the Tracker
+    // table, Hypercare Movement and Weekly Cohort — which all use allFilteredRows.
+    //   1. title contains "Postponed" → excluded (documented business rule)
+    //   2. request_type not one of Hypercare / Churn / Self Serve → not bucketable
+    if (/postponed/i.test(r.title || '')) return false;
+    if (!unassignmentBucket(r.request_type)) return false;
     if (!unasRowPasses(r)) return false;
     if (useWeek && weeksSet.size && !weeksSet.has(r.week || '(no week)')) return false;
     return !!parseTaskDate(r.date_created);
