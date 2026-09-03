@@ -42,10 +42,12 @@ CARDS = {
 # Raw dumps total ~225 MB (callContext 102, gcv3 58, tasks 35 ...). The views are
 # recency-focused, so we trim each source to a generous window that comfortably
 # covers what the UI shows. Tune the windows here if a view needs more history.
-TASK_GC_TOKENS = [
-    "aaruni", "sadiya", "nikita", "nishan", "dev vashisth", "vashisth",
-    "sejal", "aanchal", "vishal", "debasish", "debashish", "sankhajit",
-]
+# TASK_GC_TOKENS is DERIVED from the roster lists further down (see _task_tokens()).
+# It used to be a hand-maintained literal and silently drifted: Tanaya Gore and
+# Sargunpreet Singh joined 2026-07 and were added to the dashboard's MKT_GCS but
+# never here, so every one of their tasks was dropped from the snapshot and
+# Marketing Task View showed 0 tasks for 2 of the 3 active GCs. Deriving it from
+# the rosters means adding a GC in one place can no longer lose their tasks.
 GCV3_WEEKS = 12   # keep the most recent N distinct year_weeks
 
 
@@ -215,6 +217,33 @@ MKT_GCS = ["Nikita S GC", "Tanaya Gore", "Sargunpreet Singh"]
 # Some GCs appear under name variants in card 7753 → collapse to one MKT_GCS entry.
 # Nikita Sinha shows up as "Nikita S", "Nikita S GC" and "Nikita Sinha".
 GC_ALIASES = {"Nikita S": "Nikita S GC", "Nikita Sinha": "Nikita S GC"}
+
+# Mirrors of the dashboard's REV_GCS / SCA_GCS, needed so the tasks dump keeps rows
+# for the revival and scaling teams too. (Scaling is delisted from the UI but its
+# backend is deliberately kept — see SHOW_SCALING in index.html.)
+REV_GCS = ["Aanchal Agrawal", "Vishal Thapa", "Debasish Das", "Kavita Rai"]
+SCA_GCS = ["Sankhajit Ghosh"]
+# Spelling variants / safe shorter prefixes that a first-name split won't produce.
+TASK_TOKEN_EXTRAS = ["debashish", "sargun"]
+
+
+def _task_tokens():
+    """Lowercased match tokens for card 10181's assignee_name, from the rosters.
+
+    reduce_rows() substring-matches these against the task owner, so a first name
+    is enough ("Nikita S GC" -> "nikita"). Anyone NOT listed here has their tasks
+    trimmed out of the snapshot entirely, which is why this must stay in step with
+    MKT_GCS / REV_GCS / SCA_GCS rather than being maintained by hand.
+    """
+    toks = set(TASK_TOKEN_EXTRAS)
+    for name in list(MKT_GCS) + list(REV_GCS) + list(SCA_GCS):
+        first = str(name).split()[0].strip().lower()
+        if first:
+            toks.add(first)
+    return sorted(toks)
+
+
+TASK_GC_TOKENS = _task_tokens()
 
 
 def _canon(s):
