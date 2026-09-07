@@ -140,6 +140,43 @@ def _spend_num(v):
         return 0.0
 
 
+def _unassigned_ids():
+    """Sellers whose MOST RECENT revival-flow decision is terminal — churn or self_serve.
+
+    These are no longer assigned to a GC, but cards 12477 / 7753 still map them, so both
+    the Marketing scope and the Analysis "assigned" denominator were counting them. For
+    Tanaya Gore that was 19 of 191 (17 churn + 2 self_serve).
+
+    LATEST decision wins: a seller can churn and later be revived (55 of Tanaya's are
+    revived), and those are legitimately still hers — so a plain "has ever churned" test
+    would wrongly drop them.
+
+    Read from the committed mb/unassignment.json (card 9353, refreshed by the daily full
+    run) instead of re-pulling 9353: the marketing job runs 4-6x/day and that card is
+    native SQL over workboard_tasks + form_responses, so re-pulling it would add real
+    BigQuery load for data that changes once a day. Unreadable file -> empty set, i.e.
+    FAIL OPEN: never silently drop sellers because a file was missing.
+    """
+    path = os.path.join(REPO, "mb", "unassignment.json")
+    try:
+        rows = (json.load(open(path)) or {}).get('rows') or []
+    except Exception as e:
+        print(f"[unassigned] cannot read {path} ({e}) — treating nobody as unassigned")
+        return set()
+    latest = {}
+    for r in rows:
+        sid = str(r.get('seller_id') or '').strip()
+        dec = str(r.get('decision') or '').strip().lower()
+        if not sid or not dec:
+            continue
+        k = str(r.get('date_created') or '')
+        if sid not in latest or k > latest[sid][0]:
+            latest[sid] = (k, dec)
+    out = {s for s, (_k, d) in latest.items() if d in ('churn', 'self_serve')}
+    print(f"[unassigned] {len(out)} sellers excluded — latest decision is churn/self_serve")
+    return out
+
+
 def build_revival_spend(url, H):
     """Revival Compliance feed: per revived seller, post-revival spend =
     max(0, total_spend[card 10065 col 'total spend'] - pre_revival_spend[card
@@ -306,10 +343,11 @@ def build_marketing_sellers(url, H):
         if sid:
             day_by[sid] = {'today': _spend_num(r.get('today_spend')),
                            'yesterday': _spend_num(r.get('yesterday_spend'))}
+    unassigned = _unassigned_ids()
     mp = {}
     for r in map_rows:
         sid = str(r.get('seller_id') or '').strip()
-        if not sid:
+        if not sid or sid in unassigned:   # churned / moved to self-serve → not assigned
             continue
         mp[sid] = {'gc': _gc_canon(r.get('growth_consultant_name')),
                    'gm': _canon(r.get('growth_manager_name')),
@@ -623,11 +661,14 @@ def build_hypercare_analysis(url, H, dm_rows=None, revival_bySeller=None, trend=
         wk7_rows = []
 
     # ---- universe: seller → GC, and the assigned denominator per group -------
+    unassigned = _unassigned_ids()
     gc_by = {}
     for r in uni_rows:
         sid = str(_hc_get(r, 0, 'seller_id') or '').strip()
         gc = _gc_canon(_hc_get(r, 9, 'growth_consultant_name'))
         if not sid or not gc or gc == '-':
+            continue
+        if sid in unassigned:   # churned / self-serve → out of the assigned denominator
             continue
         gc_by[sid] = gc
     gcs = sorted(set(gc_by.values()))
