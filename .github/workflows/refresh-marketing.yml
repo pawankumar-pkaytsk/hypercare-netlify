@@ -14,9 +14,18 @@ on:
     # users saw the amber "1 week behind" banner all morning. Off-peak minutes get
     # picked up far closer to schedule.
     - cron: "23 0 * * *"   # 05:53 IST — minutes after the Monday 00:00 UTC rollover
-    - cron: "37 2 * * 1"   # 08:07 IST, MONDAY ONLY — backstop if the 00:23 run is delayed
     - cron: "19 6 * * *"   # 11:49 IST
     - cron: "41 12 * * *"  # 18:11 IST
+    # MONDAY-ONLY extra attempts. Moving off the :00 slot was NOT enough — GitHub
+    # still queued this job 3-4.5h late (2026-09-06: 00:23 -> 04:47, 06:19 -> 11:03,
+    # 12:41 -> 15:45), so on Monday 2026-09-07 the ISO-week rollover was still
+    # unrefreshed at 04:39 UTC. The delay varies run to run, so several independent
+    # attempts in the early-Monday window get the first success in sooner than one
+    # attempt can. Each run is ~40s over 3 cards, so the extra Monday cost is small —
+    # do NOT extend this pattern to every day, it would blow the BigQuery scan quota.
+    - cron: "11 1 * * 1"   # 06:41 IST Monday
+    - cron: "37 2 * * 1"   # 08:07 IST Monday
+    - cron: "29 3 * * 1"   # 08:59 IST Monday
   workflow_dispatch: {}
 
 # Share the full-refresh lock so the two jobs never race on push.

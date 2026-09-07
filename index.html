@@ -3083,7 +3083,7 @@ const SHEETS_FAILED_PLACEHOLDER = /^FILL_IN_/;
 // Bumped on every push so the UI can show which build the user is actually
 // running. If this string doesn't match the latest deploy, the browser is
 // serving a cached/older version.
-const BUILD_VERSION = "2026-09-01 · Scaling delisted from the UI (backend pipeline untouched)";
+const BUILD_VERSION = "2026-09-07 · retry transient Sheets 503s; extra Monday rollover refresh attempts";
 // Optional convenience: persist file IDs to localStorage so you don't have to
 // edit the file every redeploy. If a value is set in localStorage it takes
 // precedence over the hard-coded one above. See window.hcSetSheetId() helper.
@@ -4537,10 +4537,24 @@ async function fetchOne(label, sheet) {
       try { res = await doFetch(); } catch (e) { throw new Error(`${label}: network error after re-auth — ${e.message || e}`); }
     }
   }
+  // Transient server-side failures: the Sheets API regularly returns 503
+  // "The service is currently unavailable." (and 429 when several tabs are pulled
+  // at once — we fetch ~22 in parallel). There was NO retry for these, so a single
+  // blip dropped that sheet for the whole load; that is how Remaining Funds and
+  // MSP Recovery went missing while every other source succeeded. Google's own
+  // guidance is exponential backoff, so do that before giving up.
+  const RETRYABLE = new Set([429, 500, 502, 503, 504]);
+  for (let attempt = 0; attempt < 4 && RETRYABLE.has(res.status); attempt++) {
+    const wait = 400 * Math.pow(2, attempt) + Math.floor(Math.random() * 300);  // jitter avoids a thundering herd
+    await new Promise(r => setTimeout(r, wait));
+    try { res = await doFetch(); }
+    catch (e) { break; }   // network died mid-retry — fall through to the error below
+  }
   if (!res.ok) {
     let body = "";
     try { body = (await res.text()).slice(0, 300); } catch (e) {}
-    throw new Error(`${label}: HTTP ${res.status} ${res.statusText} · ${body}`);
+    const hint = RETRYABLE.has(res.status) ? " (retried 4× with backoff)" : "";
+    throw new Error(`${label}: HTTP ${res.status} ${res.statusText}${hint} · ${body}`);
   }
   let data;
   try { data = await res.json(); }
