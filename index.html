@@ -3083,7 +3083,7 @@ const SHEETS_FAILED_PLACEHOLDER = /^FILL_IN_/;
 // Bumped on every push so the UI can show which build the user is actually
 // running. If this string doesn't match the latest deploy, the browser is
 // serving a cached/older version.
-const BUILD_VERSION = "2026-09-07 · retry transient Sheets 503s; extra Monday rollover refresh attempts";
+const BUILD_VERSION = "2026-09-08 · Seller View shows the FULL assigned roster (was only card 11011's P&L-visible subset)";
 // Optional convenience: persist file IDs to localStorage so you don't have to
 // edit the file every redeploy. If a value is set in localStorage it takes
 // precedence over the hard-coded one above. See window.hcSetSheetId() helper.
@@ -5348,7 +5348,7 @@ function renderSellerView() {
   document.getElementById('sub-seller').innerHTML = `
     <div class="card">
       <h3>Seller View <span class="src-tag">LIVE · Metabase</span></h3>
-      <p style="color:#475569;font-size:12px;font-weight:600;margin:0 0 8px 0;">Scope: HITS sellers mapped to a Hypercare GC (cards 11011 + 7753; daily spend from 2787). Spend/Live = sellers with yesterday spend &gt; 1 ÷ total assigned × 100.</p>
+      <p style="color:#475569;font-size:12px;font-weight:600;margin:0 0 8px 0;">Scope: <b>every seller assigned to a Hypercare GC</b> (card 7753, excluding sellers whose latest revival decision is churn/self-serve; names &amp; last-spend from 10065; daily spend from 2787). Spend/Live = sellers with yesterday spend &gt; 1 ÷ total assigned × 100. Weekly PNL/spend comes from card 11011 and is blank for sellers with no P&amp;L record in the last 3 ISO weeks — those sellers are listed here but are correctly excluded from Bucket Health.</p>
       ${mktStaleBanner()}
       ${renderSpendLiveCards()}
       ${tbl}

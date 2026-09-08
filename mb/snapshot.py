@@ -311,8 +311,18 @@ def _iso_week_meta(weeks_ago):
 def build_marketing_sellers(url, H):
     """Marketing Seller View feed. Scope moved OFF the org-locked Google Inputs
     sheet onto Metabase so it stays live + handsfree:
-      universe   = card 11011 (Best P&L Visibility - Hits: last 3 weeks spend+pnl)
+      universe   = card 7753  (the FULL assigned roster per GC)
+      weekly PNL = card 11011 (Best P&L Visibility - Hits: last 3 weeks spend+pnl)
       GC mapping = card 7753  (seller_manager_mapping: growth_consultant_name etc.)
+
+    CHANGED 2026-09-08 (owner request: "show all the sellers assigned to each GC").
+    The universe used to BE card 11011, which only admits sellers with a gc_view_3 row
+    in the last 3 ISO weeks — so ~124 genuinely-assigned but dormant sellers never
+    appeared, and "total assigned" read 148 against a real book of 312. Now every
+    seller mapped to an MKT_GCS growth consultant is included and 11011 merely
+    ENRICHES them with weekly PNL/spend; sellers absent from 11011 carry null PNL and
+    null weekly spend (NOT zero — Bucket Health's predicates test for null, so they
+    correctly stay out of the buckets rather than landing in a bogus one).
     A seller is in scope if its 7753 GC (canonicalized) is one of MKT_GCS. The
     old sheet filter keyed on growth_manager=='Pawan Kumar', but in 7753 the GM of
     these GCs is 'Aaruni Vaidya' (and Sargunpreet's is 'Aakash A') — so scope is
@@ -337,6 +347,21 @@ def build_marketing_sellers(url, H):
     except Exception as e:
         print(f"[marketingSellers] 2787 daily-spend pull failed ({e}); today/yesterday = null")
         day_rows = []
+    # Card 10065 supplies the seller NAME (company) and last-spend date for sellers that
+    # are not in 11011 — without it the newly-included roster rows would render nameless,
+    # and it also fills the Seller View's "Last Spend Date"/"Days Since" columns, which
+    # this feed previously always left null.
+    try:
+        tot_rows = pull(10065)
+    except Exception as e:
+        print(f"[marketingSellers] 10065 pull failed ({e}); names/last-spend fall back to 11011 only")
+        tot_rows = []
+    meta_by = {}
+    for r in tot_rows:
+        sid = str(r.get('seller id') or r.get('seller_id') or '').strip()
+        if sid:
+            meta_by[sid] = {'name': _canon(r.get('company')),
+                            'lastSpend': str(r.get('last spend date') or '')[:10]}
     day_by = {}
     for r in day_rows:
         sid = str(r.get('seller_id') or '').strip()
@@ -359,35 +384,63 @@ def build_marketing_sellers(url, H):
         except Exception:
             return None
 
-    mkt, sellers, per_gc = set(MKT_GCS), [], {}
+    # 11011 keyed by seller so it can enrich, rather than define, the universe.
+    pnl_by = {}
     for r in pnl_rows:
         sid = str(r.get('seller_id') or '').strip()
-        if not sid:
-            continue
-        m = mp.get(sid)
-        if not m or m['gc'] not in mkt:
-            continue
+        if sid:
+            pnl_by[sid] = r
+    today = datetime.datetime.utcnow().date()
+    mkt, sellers, per_gc = set(MKT_GCS), [], {}
+    with_pnl = 0
+    # UNIVERSE = the full assigned roster (mp is card 7753 already minus churn/self-serve).
+    for sid, m in mp.items():
         gc = m['gc']
-        w1s = _spend_num(r.get('w1_spend'))
-        w2s = _spend_num(r.get('w2_spend'))
-        w3s = _spend_num(r.get('w3_spend'))
+        if gc not in mkt:
+            continue
+        r = pnl_by.get(sid)
+        meta = meta_by.get(sid) or {}
+        if r is not None:
+            with_pnl += 1
+            w1s = _spend_num(r.get('w1_spend'))
+            spend_w = [round(w1s, 2), round(_spend_num(r.get('w2_spend')), 2), round(_spend_num(r.get('w3_spend')), 2)]
+            pnl_w = [_pnl(r.get('w1_pnl')), _pnl(r.get('w2_pnl')), _pnl(r.get('w3_pnl'))]
+            name = _canon(r.get('company')) or meta.get('name', '')
+        else:
+            # No 11011 row → no P&L visibility this window. Null, not zero.
+            w1s = 0.0
+            spend_w = [None, None, None]
+            pnl_w = [None, None, None]
+            name = meta.get('name', '')
+        last = meta.get('lastSpend') or ''
+        ds = None
+        if len(last) == 10 and last[4] == '-':
+            try:
+                ds = (today - datetime.date.fromisoformat(last)).days
+            except Exception:
+                ds = None
         dd = day_by.get(sid)
         sellers.append({
             'seller_id': sid,
-            'seller_name': _canon(r.get('company')),
+            'seller_name': name,
             'crm_gc': gc, 'gc_display': gc,
             'crm_gm': '' if m['gm'] in ('-', '') else m['gm'],
             'crm_kae': '' if m['kae'] in ('-', '') else m['kae'],
             # 11011 weekly: latest week (w1) maps to the dashboard's "_w20"
             # (current week) slot, w2->_w19, w3->_w18.
-            'spend_w20': round(w1s, 2), 'spend_w19': round(w2s, 2), 'spend_w18': round(w3s, 2),
-            'pnl_w20': _pnl(r.get('w1_pnl')), 'pnl_w19': _pnl(r.get('w2_pnl')), 'pnl_w18': _pnl(r.get('w3_pnl')),
+            'spend_w20': spend_w[0], 'spend_w19': spend_w[1], 'spend_w18': spend_w[2],
+            'pnl_w20': pnl_w[0], 'pnl_w19': pnl_w[1], 'pnl_w18': pnl_w[2],
             # Daily spend from card 2787 (null if the seller has no 2787 row).
             'today_spend': round(dd['today'], 2) if dd else None,
             'yesterday_spend': round(dd['yesterday'], 2) if dd else None,
-            'last_spend_date': None, 'last_spend_date_iso': None,
-            'days_since_spend': None, 'is_active_45d': True,
+            'last_spend_date': last or None, 'last_spend_date_iso': last or None,
+            'days_since_spend': ds,
+            # Left True on purpose: some views filter on this, and the whole point of
+            # this change is that dormant assigned sellers stay visible.
+            'is_active_45d': True,
             'website_url': '', 'is_live_w1': w1s > 1,
+            # Lets the UI distinguish "assigned but no P&L this window" from a real zero.
+            'has_pnl_visibility': r is not None,
         })
         per_gc[gc] = per_gc.get(gc, 0) + 1
     wk = [_iso_week_meta(1), _iso_week_meta(2), _iso_week_meta(3)]
@@ -396,11 +449,13 @@ def build_marketing_sellers(url, H):
            'weekKeys': [w['key'] for w in wk],
            'weekLabels': [w['label'] for w in wk],
            'weekStarts': [w['start'] for w in wk],
-           'sellers': sellers, 'perGC': per_gc, 'total': len(sellers)}
+           'sellers': sellers, 'perGC': per_gc, 'total': len(sellers),
+           'withPnlVisibility': with_pnl}
     path = os.path.join(REPO, "mb", "marketingSellers.json")
     with open(path, "w") as f:
         json.dump(out, f, separators=(',', ':'))
-    print(f"[marketingSellers] {len(sellers)} sellers across {len(per_gc)} GCs → {path}  perGC={per_gc}")
+    print(f"[marketingSellers] {len(sellers)} sellers across {len(per_gc)} GCs "
+          f"({with_pnl} with 11011 P&L visibility, {len(sellers) - with_pnl} without) → {path}  perGC={per_gc}")
     return out
 
 
