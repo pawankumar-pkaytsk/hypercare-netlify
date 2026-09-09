@@ -308,6 +308,108 @@ def _iso_week_meta(weeks_ago):
             "start": monday.isoformat()}
 
 
+# ---- Assignment history: who a seller moved to, and on what date ------------
+# Cards 7753 / 12477 are CURRENT-STATE only — verified: 7753 reads
+# blitzscale-prod-project.analytics.seller_console_metrics_summary and has zero
+# temporal columns. So there is no reassignment timestamp anywhere upstream, and the
+# only way to know when a seller changed hands is to diff our own snapshots.
+# This builder does that: each run compares the live mapping against the last state
+# it recorded and appends any change with the DATE it was observed (owner asked for
+# dates only, no times — and a time would be false precision anyway, since detection
+# is bounded by the refresh cadence, not the actual moment of reassignment).
+#
+# The `changes` list is APPEND-ONLY and keeps far more than the UI shows; the
+# dashboard renders a rolling HC_ASSIGN_WINDOW_DAYS window so a seller appears in the
+# "Newly Assigned" section for a couple of days and then drops off. Widening that
+# window is a UI change only — no data is discarded.
+HC_ASSIGN_WINDOW_DAYS = 2      # what the UI shows; the ledger itself keeps everything
+HC_ASSIGN_KEEP_DAYS = 400      # hard cap so the file cannot grow without bound
+
+
+def build_assignment_history(map_rows, name_by=None):
+    """Append observed GC reassignments to mb/assignmentHistory.json.
+
+    Scope is the MKT_GCS roster: we track the GC of every seller currently mapped to a
+    Hypercare growth consultant. `from_gc` is only known when we had already seen that
+    seller under a different Hypercare GC — a seller arriving from outside the roster
+    records an empty from_gc, which the UI shows as "new to hypercare" rather than
+    inventing a previous owner we cannot verify.
+    """
+    path = os.path.join(REPO, "mb", "assignmentHistory.json")
+    prev = {}
+    if os.path.exists(path):
+        try:
+            prev = json.load(open(path)) or {}
+        except Exception as e:
+            print(f"[assignmentHistory] existing file unreadable ({e}) — reseeding")
+            prev = {}
+    prev_state = prev.get('state') or {}
+    changes = prev.get('changes') or []
+    names = name_by or {}
+
+    mkt = set(MKT_GCS)
+    unassigned = _unassigned_ids()
+    cur = {}
+    for r in map_rows:
+        sid = str(r.get('seller_id') or '').strip()
+        if not sid or sid in unassigned:
+            continue
+        gc = _gc_canon(r.get('growth_consultant_name'))
+        if gc in mkt:
+            cur[sid] = gc
+
+    today = datetime.datetime.utcnow().date().isoformat()
+
+    # FIRST RUN: seed the baseline silently. Without this every one of the ~280 current
+    # sellers would be logged as "assigned today" and the new section would open with a
+    # few hundred bogus rows.
+    seeded = 'state' not in prev
+    new_changes = []
+    if not seeded:
+        # de-dupe so re-running on the same day cannot double-log
+        seen = {(c.get('seller_id'), c.get('to_gc'), c.get('date')) for c in changes}
+        for sid, gc in cur.items():
+            was = prev_state.get(sid)
+            if was == gc:
+                continue
+            key = (sid, gc, today)
+            if key in seen:
+                continue
+            new_changes.append({'seller_id': sid, 'seller_name': names.get(sid, ''),
+                                'from_gc': was or '', 'to_gc': gc, 'date': today})
+        for sid, gc in prev_state.items():
+            if sid in cur:
+                continue
+            key = (sid, '', today)
+            if key in seen:
+                continue
+            new_changes.append({'seller_id': sid, 'seller_name': names.get(sid, ''),
+                                'from_gc': gc, 'to_gc': '', 'date': today})
+    changes = changes + new_changes
+
+    # Backfill entries may carry names we now know — fill blanks in place.
+    for c in changes:
+        if not c.get('seller_name') and names.get(c.get('seller_id')):
+            c['seller_name'] = names[c['seller_id']]
+
+    cut = (datetime.datetime.utcnow().date() - datetime.timedelta(days=HC_ASSIGN_KEEP_DAYS)).isoformat()
+    changes = [c for c in changes if str(c.get('date') or '') >= cut]
+    changes.sort(key=lambda c: (c.get('date') or '', c.get('to_gc') or ''), reverse=True)
+
+    out = {'generatedAt': datetime.datetime.utcnow().strftime('%Y-%m-%dT%H:%M:%SZ'),
+           'windowDays': HC_ASSIGN_WINDOW_DAYS,
+           'tracked': len(cur),
+           'state': cur,
+           'changes': changes}
+    with open(path, "w") as f:
+        json.dump(out, f, separators=(',', ':'))
+    if seeded:
+        print(f"[assignmentHistory] baseline seeded with {len(cur)} sellers — no changes logged on a first run")
+    else:
+        print(f"[assignmentHistory] {len(new_changes)} change(s) today · {len(changes)} in the ledger · tracking {len(cur)}")
+    return out
+
+
 def build_marketing_sellers(url, H):
     """Marketing Seller View feed. Scope moved OFF the org-locked Google Inputs
     sheet onto Metabase so it stays live + handsfree:
@@ -456,6 +558,11 @@ def build_marketing_sellers(url, H):
         json.dump(out, f, separators=(',', ':'))
     print(f"[marketingSellers] {len(sellers)} sellers across {len(per_gc)} GCs "
           f"({with_pnl} with 11011 P&L visibility, {len(sellers) - with_pnl} without) → {path}  perGC={per_gc}")
+    # Reuses map_rows — no extra card pull.
+    try:
+        build_assignment_history(map_rows, {x['seller_id']: x['seller_name'] for x in sellers})
+    except Exception as e:
+        print(f"[assignmentHistory] FAILED: {e} (keeping previous file)")
     return out
 
 

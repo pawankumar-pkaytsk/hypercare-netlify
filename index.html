@@ -2766,6 +2766,7 @@
       <button class="subtab" data-sub="camp">📡 Campaign Track</button>
       <button class="subtab" data-sub="escalation">Escalation Compliance</button>
       <button class="subtab" data-sub="revcomp">Revival Compliance</button>
+      <button class="subtab" data-sub="newassign">🆕 New Assignments</button>
     </div>
     <div class="filter-bar" id="mkt-filter">
       <span class="lbl">Filter by GC:</span>
@@ -2783,6 +2784,7 @@
     <div id="sub-camp"       class="subview"></div>
     <div id="sub-escalation" class="subview"></div>
     <div id="sub-revcomp"    class="subview"></div>
+    <div id="sub-newassign"  class="subview"></div>
   </div>
 
   <div id="view-Unassignment" class="view"></div>
@@ -3083,7 +3085,7 @@ const SHEETS_FAILED_PLACEHOLDER = /^FILL_IN_/;
 // Bumped on every push so the UI can show which build the user is actually
 // running. If this string doesn't match the latest deploy, the browser is
 // serving a cached/older version.
-const BUILD_VERSION = "2026-09-08 · Seller View shows the FULL assigned roster (was only card 11011's P&L-visible subset)";
+const BUILD_VERSION = "2026-09-09 · New Assignments section: GC reassignments with dates, rolling 2-day window";
 // Optional convenience: persist file IDs to localStorage so you don't have to
 // edit the file every redeploy. If a value is set in localStorage it takes
 // precedence over the hard-coded one above. See window.hcSetSheetId() helper.
@@ -4846,6 +4848,10 @@ let MKT_SELLERS_MB = null;
 // rolling ~31-day window, so this file is the only durable record of past days.
 let HC_ANALYSIS = null;
 let HC_REVIVED = null;
+// GC reassignment ledger (mb/assignmentHistory.json). Dates only — cards 7753/12477
+// carry no reassignment timestamp, so the date is when our snapshot first OBSERVED the
+// change. The file keeps full history; this view shows a rolling window.
+let HC_ASSIGN = null;
 function _reviveDates(v) {
   if (v === null || typeof v !== "object") return v;
   if (Array.isArray(v)) { for (let i = 0; i < v.length; i++) v[i] = _reviveDates(v[i]); return v; }
@@ -4905,6 +4911,10 @@ async function loadAggregates(force) {
   try {
     const r = await fetch("mb/revivedSellers.json", { cache: "no-store" });
     if (r.ok) { HC_REVIVED = await r.json(); window.HC_REVIVED = HC_REVIVED; }
+  } catch (e) {}
+  try {
+    const r = await fetch("mb/assignmentHistory.json", { cache: "no-store" });
+    if (r.ok) { HC_ASSIGN = await r.json(); window.HC_ASSIGN = HC_ASSIGN; }
   } catch (e) {}
   return HC_AGG;
 }
@@ -5369,6 +5379,92 @@ const BUCKETS = {
   "Subjective Hit":s => s.pnl_w20 != null && s.pnl_w20 > 5 && s.pnl_w19 != null && s.pnl_w19 > 3 && s.spend_w20 != null && s.spend_w20 > SPEND_THRESHOLD && s.spend_w19 != null && s.spend_w19 > SPEND_THRESHOLD,
   "Missed Hit":    s => s.pnl_w19 != null && s.pnl_w19 > 5 && s.pnl_w18 != null && s.pnl_w18 > 5 && s.spend_w19 != null && s.spend_w19 > SPEND_THRESHOLD && s.spend_w18 != null && s.spend_w18 > SPEND_THRESHOLD,
 };
+// ---- New Assignments -------------------------------------------------------
+// Rolling window over the assignment ledger. Default window comes from the feed
+// (windowDays, currently 2) so changing it server-side needs no UI edit; the chips let
+// a user widen it ad hoc without losing that default.
+let naWindowDays = null;   // null → use the feed's windowDays
+function renderNewAssignments() {
+  const host = document.getElementById('sub-newassign');
+  if (!host) return;
+  const a = HC_ASSIGN;
+  if (!a || !Array.isArray(a.changes)) {
+    host.innerHTML = `<div class="card"><h3>New Assignments <span class="pending-tag">NO DATA</span></h3>
+      <div class="pending-card"><h4>mb/assignmentHistory.json hasn't been generated yet.</h4>
+      <p style="color:#94a3b8;font-size:12px;">Written by <code>build_assignment_history()</code> on each marketing refresh.</p></div></div>`;
+    return;
+  }
+  const win = naWindowDays || a.windowDays || 2;
+  const cutIso = localISODate(new Date(Date.now() - (win - 1) * 86400000));
+  const rows = a.changes.filter(c => String(c.date || '') >= cutIso);
+  const disp = g => (typeof DISPLAY !== 'undefined' && DISPLAY[g]) || g || '\u2014';
+  const perGC = {};
+  rows.forEach(c => { if (c.to_gc) perGC[c.to_gc] = (perGC[c.to_gc] || 0) + 1; });
+
+  const tiles = [`<div class="sl-card overall"><div class="sl-label">Reassigned in the last ${win} day${win === 1 ? '' : 's'}</div>`
+    + `<div class="sl-value">${rows.length}</div><div class="sl-sub">${a.changes.length} in the full ledger</div></div>`]
+    .concat(MKT_GCS.map(g => `<div class="sl-card"><div class="sl-label">${escHtml(disp(g))}</div>`
+      + `<div class="sl-value">${perGC[g] || 0}</div><div class="sl-sub">moved in</div></div>`)).join('');
+
+  const ind = '<span class="sort-indicator" style="opacity:.35;">\u21c5</span>';
+  const body = rows.map(c => {
+    const from = c.from_gc
+      ? `<span class="gc">${escHtml(disp(c.from_gc))}</span>`
+      : '<span style="color:#94a3b8;font-style:italic;">new to hypercare</span>';
+    const to = c.to_gc
+      ? `<span class="gc" style="font-weight:700;">${escHtml(disp(c.to_gc))}</span>`
+      : '<span style="color:#b91c1c;font-weight:600;">left the roster</span>';
+    return `<tr>${sellerIdCell(c.seller_id)}<td>${escHtml(c.seller_name) || '<span class="empty-cell">\u2014</span>'}</td>`
+      + `<td>${from}</td><td>${to}</td>`
+      + `<td style="color:#475569;white-space:nowrap;font-weight:600;">${fmtDDMMYY(c.date) || escHtml(c.date || '')}</td></tr>`;
+  }).join('');
+
+  host.innerHTML = `
+    <div class="card">
+      <h3>\ud83c\udd95 New Assignments <span class="src-tag">LAST ${win} DAY${win === 1 ? '' : 'S'}</span></h3>
+      <p style="color:#475569;font-size:12px;margin:0 0 10px 0;">
+        Sellers whose growth consultant changed, newest first. A row stays here for
+        <b>${win} day${win === 1 ? '' : 's'}</b> then drops off — the ledger keeps everything
+        (${a.changes.length} entries), so nothing is lost.
+      </p>
+      <div class="sl-grid">${tiles}</div>
+      <div class="filter-bar" style="margin:12px 0 10px 0;">
+        <span class="lbl">Window:</span>
+        ${[2, 7, 30].map(d => `<span class="chip ${win === d ? 'on' : ''}" data-na-win="${d}">${d} days</span>`).join('')}
+        <button id="na-export" class="chip" style="margin-left:auto;cursor:pointer;">\u2b07 Export CSV</button>
+      </div>
+      <div class="tbl-wrap">
+        <table class="t" id="na-table">
+          <thead><tr><th>Seller ID${ind}</th><th>Seller Name${ind}</th><th>Previous GC${ind}</th>
+          <th>Assigned To${ind}</th><th>Date${ind}</th></tr></thead>
+          <tbody>${body || `<tr><td colspan="5" style="text-align:center;color:#94a3b8;padding:20px;">No reassignments in the last ${win} day${win === 1 ? '' : 's'}.</td></tr>`}</tbody>
+        </table>
+      </div>
+      <p style="color:#64748b;font-size:11px;margin-top:8px;line-height:1.6;">
+        <b>Date = when the change was first observed</b>, not the exact moment it happened.
+        Cards 7753 / 12477 hold only current state with no reassignment timestamp, so this is
+        reconstructed by diffing successive snapshots — precision is the refresh cadence, a few hours.
+        Nothing exists before <b>21 Jul 2026</b>, and for Jul\u2013Sep only GC\u2192GC moves were
+        recoverable (the snapshot was then scoped to card 11011, so arrivals from outside the
+        roster were not observable).
+      </p>
+    </div>`;
+
+  host.querySelectorAll('[data-na-win]').forEach(el => el.addEventListener('click', () => {
+    naWindowDays = parseInt(el.dataset.naWin, 10); renderNewAssignments();
+  }));
+  const t = document.getElementById('na-table');
+  if (t) makeTableSortable(t);
+  const ex = document.getElementById('na-export');
+  if (ex) ex.addEventListener('click', () => {
+    if (rows.length) exportRowsAsCSV(rows.map(c => ({
+      seller_id: c.seller_id, seller_name: c.seller_name,
+      previous_gc: c.from_gc || 'new to hypercare',
+      assigned_to: c.to_gc || 'left the roster', date_observed: c.date,
+    })), `new-assignments-${win}d-${localISODate(new Date())}`);
+  });
+}
+
 function renderBucketHealth() {
   if (!DATA) return;
   // Exclude sellers whose latest-week PNL is exactly 0% — spend is present but
@@ -6566,7 +6662,7 @@ function renderAll() {
   document.getElementById('cnt-Marketing').textContent = MKT_GCS.length;
   renderSellerView(); renderBucketHealth(); renderCallView();
   renderTaskView(); renderTroubleshoot(); renderGMPendingTS(); renderEscalation();
-  renderRevivalCompliance();
+  renderRevivalCompliance(); renderNewAssignments();
   renderCampaignTrack({ hostId: 'sub-camp', sellers: mktFilteredSellers(), statePrefix: 'mkt' });
   renderUnassignment();
   // Refresh the Daily Report if the tab is currently being shown (so live
