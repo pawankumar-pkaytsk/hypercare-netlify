@@ -59,7 +59,11 @@ jobs:
         run: |
           git config user.name "hypercare-bot"
           git config user.email "kickstarter@blitzscale.co"
-          git add mb/marketingSellers.json
+          # build_assignment_history() also rewrites mb/assignmentHistory.json on every
+          # run. Staging only marketingSellers.json left that file dirty, and the
+          # `git pull --rebase` below then aborted with "cannot pull with rebase: You
+          # have unstaged changes" — which failed the job AND lost the ledger update.
+          git add mb/marketingSellers.json mb/assignmentHistory.json
           if git diff --cached --quiet; then
             echo "No marketing data changes."
           else
