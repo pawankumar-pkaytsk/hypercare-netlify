@@ -2623,6 +2623,7 @@
     <div class="meta-bar">
       <span id="status-pill" class="status-pill loading"><span class="dot"></span> <span id="status-text">Initializing…</span></span>
       <span id="user-pill" class="user-pill" style="display:none;"></span>
+      <button id="reauth-pill" type="button" style="display:none;cursor:pointer;background:#fffbeb;border:1px solid #fcd34d;color:#92400e;border-radius:999px;padding:5px 12px;font-size:12px;font-weight:700;font-family:inherit;" title="Your Google session expired. Cached data is still shown — click to sign in again.">⚠️ Session expired — click to re-authenticate</button>
       <button id="refresh-btn" class="refresh-btn" disabled>Refresh now</button>
       <button id="theme-toggle" class="theme-toggle" type="button" aria-label="Toggle light/dark theme" title="Toggle theme">
         <span class="tt-icon-bg-sun" aria-hidden="true">
@@ -3085,7 +3086,7 @@ const SHEETS_FAILED_PLACEHOLDER = /^FILL_IN_/;
 // Bumped on every push so the UI can show which build the user is actually
 // running. If this string doesn't match the latest deploy, the browser is
 // serving a cached/older version.
-const BUILD_VERSION = "2026-09-09 · New Assignments section: GC reassignments with dates, rolling 2-day window";
+const BUILD_VERSION = "2026-09-10 · fix Safari re-login loop: silent re-auth on background refresh + non-blocking session pill";
 // Optional convenience: persist file IDs to localStorage so you don't have to
 // edit the file every redeploy. If a value is set in localStorage it takes
 // precedence over the hard-coded one above. See window.hcSetSheetId() helper.
@@ -3135,7 +3136,12 @@ const REV_OWNER_PATTERNS = {
   "Kavita Rai":      ["kavita"],
 };
 const REFRESH_MS = 60 * 60 * 1000;
-const STALE_ON_FOCUS_MS = 15 * 60 * 1000;  // 15 min — bg refresh on focus only if older
+// Tab-focus refresh threshold. Was 15 min, which in Safari meant a re-login prompt
+// roughly every time you came back to the tab: Safari discards background tabs (wiping
+// the in-memory OAuth token) and its ITP blocks the third-party accounts.google.com
+// cookies that Google's SILENT token refresh depends on, so the old refresh() gate hit
+// the sign-in overlay again and again. 60 min + the silent-retry in refresh() below.
+const STALE_ON_FOCUS_MS = 60 * 60 * 1000;
 const CACHE_KEY = "hypercare_v16";
 // localStorage key to remember the user once consented + recent enough that
 // a silent token request will succeed without showing the Sign-in overlay.
@@ -5134,13 +5140,26 @@ async function fetchSheets(opts) {
   data.allHypercareSellers = hyp.allSellersById || {};
   return data;
 }
-async function refresh() {
+// opts.background — an automatic run (hourly timer / tab focus) rather than the user
+// pressing "Refresh now". A background run must never throw a modal over cached data.
+async function refresh(opts) {
   if (META.fetching) return;
-  // Gate on sign-in: don't even try to fetch without a token.
+  const background = !!(opts && opts.background);
   if (!OAUTH_ACCESS_TOKEN) {
-    if (_isClientIdConfigured()) showSignInOverlay();
-    return;
+    // ALWAYS try a silent token refresh before giving up. This gate used to go straight
+    // to the sign-in overlay, which is why Safari asked for a re-login every ~15 min:
+    // the token was gone (tab discarded) but consent was still perfectly valid.
+    // fetchOne() has always done this on a 401/403; refresh() simply never did.
+    try { await refreshAccessTokenSilent(); } catch (e) {}
+    if (!OAUTH_ACCESS_TOKEN) {
+      if (_isClientIdConfigured()) {
+        if (background) _showReauthPill(true);   // keep cached data on screen
+        else showSignInOverlay();                 // user asked explicitly → prompt
+      }
+      return;
+    }
   }
+  _showReauthPill(false);
   META.fetching = true; META.error = null; updateMetaBar();
   try {
     const payload = await fetchSheets({ forceAggregates: true });
@@ -5223,6 +5242,15 @@ function renderFetchErrorsBanner() {
   host.innerHTML = `<div class="diag-banner">${permBlock}${otherBlock}</div>`;
   host.style.display = "block";
 }
+// Soft, non-blocking auth prompt. Silent re-auth can fail for reasons the user must
+// resolve interactively (Safari ITP blocking third-party cookies, revoked consent), and
+// blanking a working dashboard behind a modal for that is worse than a nudge.
+function _showReauthPill(show) {
+  const el = document.getElementById('reauth-pill');
+  if (!el) return;
+  el.style.display = show ? '' : 'none';
+}
+
 function setStatus(kind, text) {
   const pill = document.getElementById("status-pill");
   pill.className = "status-pill " + (kind === "ok" ? "" : kind);
@@ -11699,10 +11727,15 @@ document.getElementById('refresh-btn').addEventListener('click', () => refresh()
     }
   });
 })();
-setInterval(() => refresh(), REFRESH_MS);
+setInterval(() => refresh({ background: true }), REFRESH_MS);
 document.addEventListener('visibilitychange', () => {
-  if (!document.hidden && META.lastFetch && (Date.now() - META.lastFetch > STALE_ON_FOCUS_MS)) refresh();
+  if (!document.hidden && META.lastFetch && (Date.now() - META.lastFetch > STALE_ON_FOCUS_MS)) refresh({ background: true });
 });
+// The pill is the interactive escape hatch when silent re-auth cannot work.
+(function () {
+  const el = document.getElementById('reauth-pill');
+  if (el) el.addEventListener('click', () => { _showReauthPill(false); showSignInOverlay(); });
+})();
 setInterval(updateMetaBar, 30000);
 
 renderScaling();
