@@ -3086,7 +3086,7 @@ const SHEETS_FAILED_PLACEHOLDER = /^FILL_IN_/;
 // Bumped on every push so the UI can show which build the user is actually
 // running. If this string doesn't match the latest deploy, the browser is
 // serving a cached/older version.
-const BUILD_VERSION = "2026-09-10 · Unassignment: seller-wise search + per-seller timeline with dates";
+const BUILD_VERSION = "2026-09-10 · New Assignments hides departures; Seller View seller-ID search";
 // Optional convenience: persist file IDs to localStorage so you don't have to
 // edit the file every redeploy. If a value is set in localStorage it takes
 // precedence over the hard-coded one above. See window.hcSetSheetId() helper.
@@ -5326,9 +5326,18 @@ function renderSpendLiveCards() {
   return `<div class="sl-grid">${cards}</div>`;
 }
 
+let mktSellerQuery = "";   // Seller View search: matches seller_id OR seller_name
 function renderSellerView() {
   if (!DATA) return;
-  const sellers = mktFilteredSellers();
+  const all = mktFilteredSellers();
+  // Search narrows the TABLE only. The Spend/Live cards deliberately stay on the full
+  // GC-filtered set — a per-GC ratio computed over one searched seller would be
+  // meaningless, and the footer line below states both counts so it can't mislead.
+  const q = mktSellerQuery.trim().toLowerCase();
+  const sellers = q
+    ? all.filter(s => String(s.seller_id || '').toLowerCase().includes(q)
+                   || String(s.seller_name || '').toLowerCase().includes(q))
+    : all;
   const tbl = `<div class="tbl-wrap"><table class="t">
     <thead><tr><th>Seller ID</th><th>Seller Name</th><th>GC</th>
     <th>Account Type</th><th class="num">Remaining Funds</th>
@@ -5376,11 +5385,11 @@ function renderSellerView() {
         <td class="num">${fmtNum(s.today_spend)}</td>
         <td class="num">${fmtNum(s.yesterday_spend)}</td>
         <td style="color:#475569;white-space:nowrap;">${lastSpend || '<span class="empty-cell">—</span>'}</td>
-        <td class="num" style="color:${col};font-weight:600;">${d === null ? '—' : d}</td>
+        <td class="num" style="color:${col};font-weight:600;">${d == null ? '—' : d}</td>
         <td style="color:#475569;white-space:nowrap;">${lastCall || '<span class="empty-cell">No calls</span>'}</td>
-        <td class="num" style="color:${colC};font-weight:600;">${dc === null ? '—' : dc}</td>
+        <td class="num" style="color:${colC};font-weight:600;">${dc == null ? '—' : dc}</td>
         <td>${replyCell}</td>
-        <td class="num" style="color:${colR};font-weight:600;">${dr === null ? '—' : dr}</td>
+        <td class="num" style="color:${colR};font-weight:600;">${dr == null ? '—' : dr}</td>
       </tr>`;
     }).join('')}</tbody></table></div>`;
   document.getElementById('sub-seller').innerHTML = `
@@ -5389,9 +5398,37 @@ function renderSellerView() {
       <p style="color:#475569;font-size:12px;font-weight:600;margin:0 0 8px 0;">Scope: <b>every seller assigned to a Hypercare GC</b> (card 7753, excluding sellers whose latest revival decision is churn/self-serve; names &amp; last-spend from 10065; daily spend from 2787). Spend/Live = sellers with yesterday spend &gt; 1 ÷ total assigned × 100. Weekly PNL/spend comes from card 11011 and is blank for sellers with no P&amp;L record in the last 3 ISO weeks — those sellers are listed here but are correctly excluded from Bucket Health.</p>
       ${mktStaleBanner()}
       ${renderSpendLiveCards()}
+      <div class="filter-bar" style="margin:10px 0;">
+        <span class="lbl">Find seller:</span>
+        <input id="mkt-seller-q" type="search" placeholder="seller ID or name…" value="${escHtml(mktSellerQuery)}"
+          style="padding:6px 10px;border:1px solid #cbd5e1;border-radius:8px;background:#fff;font-size:13px;font-weight:600;color:#0f172a;min-width:230px;">
+        ${q ? '<button id="mkt-seller-q-clear" class="chip" type="button" style="cursor:pointer;">✕ clear</button>' : ''}
+        ${q ? `<span style="font-size:11px;color:#64748b;">matching <b>${sellers.length}</b> of ${all.length} assigned</span>` : ''}
+      </div>
       ${tbl}
-      <p style="color:#94a3b8;font-size:11px;margin-top:6px;">${sellers.length} active sellers shown.</p>
+      <p style="color:#94a3b8;font-size:11px;margin-top:6px;">${sellers.length} seller${sellers.length === 1 ? '' : 's'} shown${q ? ` (filtered from ${all.length})` : ''}. Cards above always cover all ${all.length}.</p>
     </div>`;
+  const box = document.getElementById('mkt-seller-q');
+  if (box) {
+    const apply = v => {
+      mktSellerQuery = v;
+      renderSellerView();
+      const again = document.getElementById('mkt-seller-q');
+      if (again) { again.focus(); again.setSelectionRange(again.value.length, again.value.length); }
+    };
+    box.addEventListener('input', e => {
+      const v = e.target.value;
+      clearTimeout(window._mktSellerT);
+      window._mktSellerT = setTimeout(() => apply(v), 300);
+    });
+    box.addEventListener('keydown', e => {
+      if (e.key !== 'Enter') return;
+      clearTimeout(window._mktSellerT);
+      apply(e.target.value);
+    });
+  }
+  const clr = document.getElementById('mkt-seller-q-clear');
+  if (clr) clr.addEventListener('click', () => { mktSellerQuery = ""; renderSellerView(); });
 }
 
 // NOTE: these predicates are INDEPENDENT and overlapping, not mutually exclusive —
@@ -5424,7 +5461,10 @@ function renderNewAssignments() {
   }
   const win = naWindowDays || a.windowDays || 2;
   const cutIso = localISODate(new Date(Date.now() - (win - 1) * 86400000));
-  const rows = a.changes.filter(c => String(c.date || '') >= cutIso);
+  // Owner asked not to show departures here — this tab is about incoming assignments.
+  // The LEDGER still records them (to_gc: '') so the history stays complete; this is a
+  // display filter only, same as the rolling window.
+  const rows = a.changes.filter(c => String(c.date || '') >= cutIso && c.to_gc);
   const disp = g => (typeof DISPLAY !== 'undefined' && DISPLAY[g]) || g || '\u2014';
   const perGC = {};
   rows.forEach(c => { if (c.to_gc) perGC[c.to_gc] = (perGC[c.to_gc] || 0) + 1; });
@@ -6718,7 +6758,7 @@ function revRenderSellerView() {
     const d = s.days_since_spend;
     const col = d === null ? '#cbd5e1' : (d <= 7 ? '#047857' : (d <= 30 ? '#b45309' : '#b91c1c'));
     const lastSpend = fmtDDMMYY(s.last_spend_date) || escHtml(s.last_spend_date || '');
-    return `<tr>${sellerIdCell(s.seller_id)}<td>${s.seller_name || '<span class="empty-cell">—</span>'}</td><td class="gc">${s.crm_gc}</td><td style="color:#475569;white-space:nowrap;">${lastSpend || '<span class="empty-cell">—</span>'}</td><td class="num" style="color:${col};font-weight:600;">${d === null ? '—' : d}</td></tr>`;
+    return `<tr>${sellerIdCell(s.seller_id)}<td>${s.seller_name || '<span class="empty-cell">—</span>'}</td><td class="gc">${s.crm_gc}</td><td style="color:#475569;white-space:nowrap;">${lastSpend || '<span class="empty-cell">—</span>'}</td><td class="num" style="color:${col};font-weight:600;">${d == null ? '—' : d}</td></tr>`;
   }).join('')}</tbody></table></div>`;
   document.getElementById('sub-rev-seller').innerHTML = `
     <div class="card">
@@ -8141,11 +8181,11 @@ function scaRenderSellerView() {
         <td class="num">${fmtNum(s.today_spend)}</td>
         <td class="num">${fmtNum(s.yesterday_spend)}</td>
         <td style="color:#475569;white-space:nowrap;">${lastSpend || '<span class="empty-cell">—</span>'}</td>
-        <td class="num" style="color:${col};font-weight:600;">${d === null ? '—' : d}</td>
+        <td class="num" style="color:${col};font-weight:600;">${d == null ? '—' : d}</td>
         <td style="color:#475569;white-space:nowrap;">${lastCall || '<span class="empty-cell">No calls</span>'}</td>
-        <td class="num" style="color:${colC};font-weight:600;">${dc === null ? '—' : dc}</td>
+        <td class="num" style="color:${colC};font-weight:600;">${dc == null ? '—' : dc}</td>
         <td>${replyCell}</td>
-        <td class="num" style="color:${colR};font-weight:600;">${dr === null ? '—' : dr}</td>
+        <td class="num" style="color:${colR};font-weight:600;">${dr == null ? '—' : dr}</td>
       </tr>`;
     }).join('')}</tbody></table></div>`;
   document.getElementById('sub-sca-seller').innerHTML = `
