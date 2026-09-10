@@ -3086,7 +3086,7 @@ const SHEETS_FAILED_PLACEHOLDER = /^FILL_IN_/;
 // Bumped on every push so the UI can show which build the user is actually
 // running. If this string doesn't match the latest deploy, the browser is
 // serving a cached/older version.
-const BUILD_VERSION = "2026-09-10 · fix Safari re-login loop: silent re-auth on background refresh + non-blocking session pill";
+const BUILD_VERSION = "2026-09-10 · Unassignment: seller-wise search + per-seller timeline with dates";
 // Optional convenience: persist file IDs to localStorage so you don't have to
 // edit the file every redeploy. If a value is set in localStorage it takes
 // precedence over the hard-coded one above. See window.hcSetSheetId() helper.
@@ -10021,14 +10021,28 @@ function renderDailyReport() {
 // ============================================================
 let callHistorySellerId = "";   // currently entered seller_id
 function _allSellersById() {
-  // Combine Marketing + Revival sellers for name lookup
+  // Combine Marketing + Revival sellers for name lookup, then fall back to the wider
+  // indexes so the Unassignment seller search can resolve names for sellers that are no
+  // longer on any GC roster (card 9353 itself carries NO seller name — its titles are
+  // generic, e.g. "Revive Seller [Hypercare Case]").
   const out = {};
   ((DATA && DATA.sellers) || []).forEach(s => { out[s.seller_id] = s; });
   ((REVIVAL && REVIVAL.sellers) || []).forEach(s => {
     if (!out[s.seller_id]) out[s.seller_id] = s;
   });
+  const wider = (DATA && DATA.allHypercareSellers) || {};
+  Object.keys(wider).forEach(sid => { if (!out[sid]) out[sid] = wider[sid]; });
+  ((HC_REVIVED && HC_REVIVED.sellers) || []).forEach(s => {
+    if (!out[s.seller_id]) out[s.seller_id] = s;
+  });
   return out;
 }
+// seller_id -> display name, for the Unassignment seller search.
+function _unasSellerName(sid) {
+  const s = (_UNAS_NAME_CACHE || (_UNAS_NAME_CACHE = _allSellersById()))[sid];
+  return (s && s.seller_name) || '';
+}
+let _UNAS_NAME_CACHE = null;
 function _callConnected(status) {
   if (!status) return false;
   const s = String(status).toUpperCase();
@@ -10277,10 +10291,16 @@ let unasDateFrom = null;            // ISO YYYY-MM-DD (lazy-init in render)
 let unasDateTo   = null;
 let unasStatusFilter   = "__all__"; // "__all__" or a specific status string
 let unasAssigneeFilter = "__all__"; // "__all__" or a specific assignee name
+let unasSellerFilter   = "";        // free text: matches seller_id OR resolved seller name
 let unasChart = null;
 
 // Returns true if a row passes the current status/assignee + date-mode filters
 function unasRowPasses(r) {
+  if (unasSellerFilter) {
+    const q = unasSellerFilter.toLowerCase();
+    const sid = String(r.seller_id || '').toLowerCase();
+    if (!sid.includes(q) && !_unasSellerName(r.seller_id).toLowerCase().includes(q)) return false;
+  }
   if (unasStatusFilter !== "__all__" && (r.status || "(blank)") !== unasStatusFilter) return false;
   if (unasAssigneeFilter !== "__all__") {
     const lo = (r.assigned_to || "").toLowerCase();
@@ -10362,6 +10382,70 @@ function buildUnassignmentData() {
     error: u.error || null,
   };
 }
+// When the seller search is active, show that ONE seller's full unassignment history —
+// the direct answer to "when was this seller unassigned?". Deliberately reads
+// data.allRows and ignores the week/status/assignee filters: if you searched for a
+// specific seller you want their whole timeline, not the intersection with whatever
+// range happened to be selected.
+function _unasSellerTimeline(data) {
+  if (!unasSellerFilter) return '';
+  const q = unasSellerFilter.toLowerCase();
+  const rows = (data.allRows || []).filter(r => {
+    const sid = String(r.seller_id || '').toLowerCase();
+    return sid.includes(q) || _unasSellerName(r.seller_id).toLowerCase().includes(q);
+  });
+  if (!rows.length) {
+    return `<div class="card"><h3>Seller timeline <span class="pending-tag">NO MATCH</span></h3>
+      <div class="pending-card"><h4>No unassignment request found for "${escHtml(unasSellerFilter)}".</h4>
+      <p style="color:#94a3b8;font-size:12px;">Search by full seller ID, or by name if the seller is on a current roster —
+      card 9353 carries no seller name of its own, so name lookup depends on the other feeds.</p></div></div>`;
+  }
+  // newest first
+  const sorted = rows.slice().sort((a, b) => {
+    const da = parseTaskDate(a.date_created), db = parseTaskDate(b.date_created);
+    return (db ? db.getTime() : 0) - (da ? da.getTime() : 0);
+  });
+  const ids = [...new Set(sorted.map(r => r.seller_id))];
+  const decided = sorted.filter(r => r.decision);
+  const first = sorted[sorted.length - 1], last = sorted[0];
+  const badge = d => {
+    const v = String(d || '').toLowerCase();
+    const col = v.includes('reviv') ? '#047857' : (v.includes('churn') ? '#b91c1c'
+      : (v.includes('self') ? '#b45309' : (v.includes('postpon') ? '#6366f1' : '#64748b')));
+    return d ? `<span style="color:${col};font-weight:700;">${escHtml(d)}</span>`
+             : '<span style="color:#94a3b8;font-style:italic;">pending</span>';
+  };
+  const body = sorted.map(r => `<tr>
+    <td style="color:#475569;white-space:nowrap;font-weight:700;">${fmtDDMMYY(r.date_created) || escHtml(String(r.date_created || ''))}</td>
+    <td>${escHtml(unassignmentBucket(r.request_type) || r.request_type || '—')}</td>
+    <td>${badge(r.decision)}</td>
+    <td>${escHtml(r.status || '—')}</td>
+    <td>${escHtml(r.assigned_to || '—')}</td>
+    <td style="color:#64748b;">${escHtml(r.week || '—')}</td>
+    <td style="color:#94a3b8;font-size:11px;">${escHtml(r.title || '')}</td>
+  </tr>`).join('');
+  const who = ids.length === 1
+    ? `${sellerIdCell(ids[0]).replace(/<\/?td[^>]*>/g, '')} ${escHtml(_unasSellerName(ids[0]) || '')}`
+    : `${ids.length} sellers matched`;
+  return `
+    <div class="card" style="border-left:3px solid #6366f1;">
+      <h3>Seller timeline <span class="src-tag">CARD 9353</span></h3>
+      <p style="color:#475569;font-size:12px;margin:0 0 10px 0;">
+        ${who} — <b>${sorted.length}</b> unassignment request${sorted.length === 1 ? '' : 's'},
+        first <b>${fmtDDMMYY(first.date_created) || '—'}</b>, latest <b>${fmtDDMMYY(last.date_created) || '—'}</b>,
+        ${decided.length} with a decision recorded. Newest first; shows the seller's full history
+        regardless of the week/status filters above.
+      </p>
+      <div class="tbl-wrap">
+        <table class="t">
+          <thead><tr><th>Date raised</th><th>Request type</th><th>Decision</th><th>Status</th>
+          <th>Assigned to</th><th>Week</th><th>Title</th></tr></thead>
+          <tbody>${body}</tbody>
+        </table>
+      </div>
+    </div>`;
+}
+
 function renderUnassignment() {
   const host = document.getElementById('view-Unassignment');
   if (!host) return;
@@ -10445,6 +10529,12 @@ function renderUnassignment() {
         <span class="lbl" style="font-size:12px;color:#64748b;font-weight:600;">Status:</span>
         <select id="unas-status" style="padding:6px 10px;border:1px solid #cbd5e1;border-radius:8px;background:#fff;font-size:13px;font-weight:600;color:#0f172a;cursor:pointer;min-width:160px;">${statusOpts}</select>
       </div>
+      <div style="display:flex;align-items:center;gap:6px;">
+        <span class="lbl" style="font-size:12px;color:#64748b;font-weight:600;">Seller:</span>
+        <input id="unas-seller" type="search" placeholder="seller ID or name…" value="${escHtml(unasSellerFilter)}"
+          style="padding:6px 10px;border:1px solid #cbd5e1;border-radius:8px;background:#fff;font-size:13px;font-weight:600;color:#0f172a;min-width:210px;">
+        ${unasSellerFilter ? '<button id="unas-seller-clear" class="chip" type="button" style="cursor:pointer;">✕ clear</button>' : ''}
+      </div>
       <button id="unas-reset" class="refresh-btn" type="button">Reset filters</button>
     </div>
     <div style="display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin-top:10px;">
@@ -10507,6 +10597,7 @@ function renderUnassignment() {
         ${data.unbucketed > 0 ? `<span style="color:#94a3b8;"> · ${data.unbucketed} row${data.unbucketed===1?'':'s'} with unrecognized request type ignored.</span>` : ''}
       </p>
       ${filterBar}
+      ${_unasSellerTimeline(data)}
       ${summary}
       <div class="tbl-wrap">
         <table class="t">
@@ -10584,8 +10675,35 @@ function renderUnassignment() {
     unasWeekFrom = "__min__"; unasWeekTo = "__max__";
     unasDateFrom = null; unasDateTo = null;
     unasStatusFilter = "__all__"; unasAssigneeFilter = "__all__";
+    unasSellerFilter = "";
     renderUnassignment();
   });
+  // Seller search. renderUnassignment() rebuilds this whole subtree, so typing would
+  // lose focus on every keystroke — debounce, then restore focus and caret afterwards.
+  const sellerBox = document.getElementById('unas-seller');
+  if (sellerBox) {
+    sellerBox.addEventListener('input', e => {
+      const v = e.target.value;
+      clearTimeout(window._unasSellerT);
+      window._unasSellerT = setTimeout(() => {
+        unasSellerFilter = v.trim();
+        renderUnassignment();
+        const again = document.getElementById('unas-seller');
+        if (again) { again.focus(); again.setSelectionRange(again.value.length, again.value.length); }
+      }, 350);
+    });
+    // Enter applies immediately rather than waiting out the debounce.
+    sellerBox.addEventListener('keydown', e => {
+      if (e.key !== 'Enter') return;
+      clearTimeout(window._unasSellerT);
+      unasSellerFilter = e.target.value.trim();
+      renderUnassignment();
+      const again = document.getElementById('unas-seller');
+      if (again) { again.focus(); again.setSelectionRange(again.value.length, again.value.length); }
+    });
+  }
+  const sellerClear = document.getElementById('unas-seller-clear');
+  if (sellerClear) sellerClear.addEventListener('click', () => { unasSellerFilter = ""; renderUnassignment(); });
   host.querySelectorAll('[data-unas-mode]').forEach(btn => {
     btn.addEventListener('click', () => {
       const next = btn.dataset.unasMode;
