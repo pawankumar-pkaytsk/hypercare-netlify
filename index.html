@@ -3086,7 +3086,7 @@ const SHEETS_FAILED_PLACEHOLDER = /^FILL_IN_/;
 // Bumped on every push so the UI can show which build the user is actually
 // running. If this string doesn't match the latest deploy, the browser is
 // serving a cached/older version.
-const BUILD_VERSION = "2026-09-10 · New Assignments hides departures; Seller View seller-ID search";
+const BUILD_VERSION = "2026-09-10 · accurate screen when the Google Sign-In script is blocked";
 // Optional convenience: persist file IDs to localStorage so you don't have to
 // edit the file every redeploy. If a value is set in localStorage it takes
 // precedence over the hard-coded one above. See window.hcSetSheetId() helper.
@@ -4725,6 +4725,34 @@ function signOut() {
 // ============================================================
 // Auth-aware UI helpers
 // ============================================================
+// The GIS script (accounts.google.com/gsi/client) never became available. This is NOT a
+// setup problem — it previously reused showSetupNeeded() and only overwrote the heading,
+// so the user was left staring at "fill in your OAUTH_CLIENT_ID" instructions while the
+// client id was in fact configured. Distinct, accurate screen with a real retry instead.
+function showGisLoadFailed() {
+  const el = document.getElementById("signin-overlay");
+  if (!el) return;
+  el.innerHTML = `
+    <div class="signin-card">
+      <div class="signin-glyph" aria-hidden="true">📡</div>
+      <h2>Google Sign-In didn't load</h2>
+      <p>The dashboard is fine — its configuration is complete. The browser could not load
+      <code>accounts.google.com/gsi/client</code>, which is the script Google Sign-In needs.
+      Nothing here needs editing.</p>
+      <p style="margin-top:14px;">Most likely causes, in order:</p>
+      <ol style="text-align:left;margin:8px 0 0;padding-left:22px;line-height:1.7;">
+        <li><b>A content/ad blocker or privacy extension</b> — the usual culprit. Disable it for this site and reload.</li>
+        <li><b>Network or VPN blocking accounts.google.com</b> — try another network, or off VPN.</li>
+        <li><b>Safari cross-site tracking prevention</b> — Safari ▸ Settings ▸ Privacy. Safari is stricter here than Chrome, so if it persists, Chrome is the quicker route.</li>
+        <li>A transient Google outage — a reload a minute later usually clears it.</li>
+      </ol>
+      <button id="gis-retry" class="refresh-btn" style="margin-top:16px;">↻ Reload and try again</button>
+    </div>`;
+  el.classList.add("open");
+  const b = document.getElementById('gis-retry');
+  if (b) b.addEventListener('click', () => location.reload());
+}
+
 function showSetupNeeded() {
   const el = document.getElementById("signin-overlay");
   if (!el) return;
@@ -11928,9 +11956,7 @@ async function _bootOAuth() {
   if (!_gisLoaded()) {
     if (window._gisPollCount === undefined) window._gisPollCount = 0;
     if (window._gisPollCount++ < 150) return setTimeout(_bootOAuth, 100);
-    showSetupNeeded();
-    document.querySelector('#signin-overlay .signin-card h2').textContent = "Google Sign-In failed to load";
-    document.querySelector('#signin-overlay .signin-card p').textContent = "Your browser or network may be blocking accounts.google.com. Check your network/extensions and reload.";
+    showGisLoadFailed();
     return;
   }
   if (!_isClientIdConfigured()) { showSetupNeeded(); return; }
