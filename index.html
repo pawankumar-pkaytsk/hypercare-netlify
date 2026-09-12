@@ -3086,7 +3086,7 @@ const SHEETS_FAILED_PLACEHOLDER = /^FILL_IN_/;
 // Bumped on every push so the UI can show which build the user is actually
 // running. If this string doesn't match the latest deploy, the browser is
 // serving a cached/older version.
-const BUILD_VERSION = "2026-09-12 · warn when the marketing feed is stale; failed marketing refresh now fails the job";
+const BUILD_VERSION = "2026-09-12 · Bucket Health counts only sellers with a real PNL, and reconciles against Seller View";
 // Optional convenience: persist file IDs to localStorage so you don't have to
 // edit the file every redeploy. If a value is set in localStorage it takes
 // precedence over the hard-coded one above. See window.hcSetSheetId() helper.
@@ -5583,17 +5583,26 @@ function renderNewAssignments() {
 
 function renderBucketHealth() {
   if (!DATA) return;
-  // Exclude sellers whose latest-week PNL is exactly 0% — spend is present but
-  // PNL wasn't computed, so it's not a real profitability signal and shouldn't
-  // be bucketed. (Null PNL sellers already render as "—" and fail the numeric
-  // bucket predicates.)
-  const all = mktFilteredSellers().filter(s => s.pnl_w20 !== 0);
+  // Bucket Health is a PROFITABILITY view: a seller with no W-1 PNL cannot be assessed,
+  // so this base is "sellers that have a real PNL number", i.e. excluding BOTH:
+  //   * pnl_w20 === 0     — spend present but PNL not computed (documented rule)
+  //   * pnl_w20 == null   — no card-11011 record in the last 3 ISO weeks
+  // The null case barely existed while the universe WAS card 11011. Since the Seller View
+  // universe moved to the full 7753 roster (2026-09-08), ~189 of 261 sellers carry null
+  // PNL — they were being counted in "All sellers" despite being unbucketable, which made
+  // the header read 250 against Seller View's 261 and implied 250 sellers were bucketed
+  // when only ~13 could match anything. The reconciliation line below states all three
+  // numbers so the two tabs can be tied out on screen.
+  const roster = mktFilteredSellers();
+  const all = roster.filter(s => s.pnl_w20 != null && s.pnl_w20 !== 0);
+  const zeroPnl = roster.filter(s => s.pnl_w20 === 0).length;
+  const noPnl = roster.filter(s => s.pnl_w20 == null).length;
   let sellers = all;
   if (activeBucketFilter !== "__all__") sellers = all.filter(BUCKETS[activeBucketFilter]);
   const counts = { "__all__": all.length };
   for (const [k, fn] of Object.entries(BUCKETS)) counts[k] = all.filter(fn).length;
   const dd = ["__all__",">-30",">-20","Potential Hit","Objective Hit","Subjective Hit","Missed Hit"]
-    .map(k => `<option value="${k}"${activeBucketFilter===k?' selected':''}>${k === '__all__' ? 'All sellers' : k}  (${counts[k]})</option>`).join('');
+    .map(k => `<option value="${k}"${activeBucketFilter===k?' selected':''}>${k === '__all__' ? 'All sellers with a PNL' : k}  (${counts[k]})</option>`).join('');
   const wL = DATA.week_labels || ['W-1','W-2','W-3'];
   const tbl = `<div class="tbl-wrap"><table class="t"><thead><tr>
     <th>Seller ID</th><th>Seller Name</th><th>GC</th>
@@ -5613,6 +5622,12 @@ function renderBucketHealth() {
         <select id="bucket-filter" style="padding:6px 10px;border:1px solid #cbd5e1;border-radius:8px;background:#fff;font-size:13px;font-weight:600;color:#0f172a;cursor:pointer;">${dd}</select>
         <span style="font-size:11px;color:#94a3b8;">All thresholds use Spend &gt; ${SPEND_THRESHOLD}.</span>
       </div>
+      <p style="color:#64748b;font-size:11px;margin:0 0 10px 0;line-height:1.6;">
+        <b>Why this differs from Seller View:</b> Seller View lists all <b>${roster.length}</b> assigned sellers.
+        Bucket Health can only assess the <b>${all.length}</b> with a week-1 PNL —
+        ${noPnl} have no card-11011 PNL record in the last 3 ISO weeks, and ${zeroPnl} show exactly 0% (spend present, PNL not computed).
+        ${roster.length} = ${all.length} + ${noPnl} + ${zeroPnl}.
+      </p>
       ${tbl}
       <p style="color:#94a3b8;font-size:11px;margin-top:6px;">${sellers.length} sellers shown${activeBucketFilter !== '__all__' ? ` (filter: ${activeBucketFilter})` : ''}.</p>
     </div>`;
