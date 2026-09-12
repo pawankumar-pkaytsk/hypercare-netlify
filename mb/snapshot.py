@@ -1118,7 +1118,16 @@ def main():
     # waiting for the once-daily full pull.
     if '--marketing-only' in sys.argv:
         os.makedirs(OUTDIR, exist_ok=True)
-        build_marketing_sellers(url, H)
+        # EXIT NON-ZERO when the build fails. build_marketing_sellers() catches card
+        # errors and returns None, keeping the previous file — deliberate, so a blip
+        # never wipes good data. But the workflow then staged nothing, printed
+        # "No marketing data changes" and reported SUCCESS, so a transient HTTP 400
+        # (seen 2026-09-11 16:44Z, ~22:14 IST near the BigQuery quota reset) left the
+        # dashboard serving 16-hour-old counts behind a green checkmark. Keeping the old
+        # file is right; claiming success is not.
+        if build_marketing_sellers(url, H) is None:
+            print("[marketing-only] build FAILED — previous file kept, failing the job so it is visible")
+            sys.exit(1)
         return
 
     # Analysis-only mode: refresh just the Hypercare Analysis feeds
