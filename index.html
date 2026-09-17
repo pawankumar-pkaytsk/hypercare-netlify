@@ -2763,7 +2763,7 @@
       <button class="subtab" data-sub="call">Call View</button>
       <button class="subtab" data-sub="task">Task View</button>
       <button class="subtab" data-sub="trouble">Troubleshoot Compliance</button>
-      <button class="subtab" data-sub="gmpendingts">🎯 GM Pending TS View</button>
+      <button class="subtab" data-sub="gmpendingts">🛠 TS To-Do</button>
       <button class="subtab" data-sub="camp">📡 Campaign Track</button>
       <button class="subtab" data-sub="escalation">Escalation Compliance</button>
       <button class="subtab" data-sub="revcomp">Revival Compliance</button>
@@ -3086,7 +3086,7 @@ const SHEETS_FAILED_PLACEHOLDER = /^FILL_IN_/;
 // Bumped on every push so the UI can show which build the user is actually
 // running. If this string doesn't match the latest deploy, the browser is
 // serving a cached/older version.
-const BUILD_VERSION = "2026-09-17 · TS Eligible filter now clears once the troubleshoot is done + Last TS column";
+const BUILD_VERSION = "2026-09-17 · one TS to-do list: threshold unified at 3000, tab renamed, per-GC queues + CSV export";
 // Optional convenience: persist file IDs to localStorage so you don't have to
 // edit the file every redeploy. If a value is set in localStorage it takes
 // precedence over the hard-coded one above. See window.hcSetSheetId() helper.
@@ -3148,7 +3148,11 @@ const CACHE_KEY = "hypercare_v16";
 // Set to 3h (Google access tokens are 1h but consent lasts much longer).
 const SESSION_KEY = "hypercare_session_v1";
 const SESSION_TTL_MS = 3 * 60 * 60 * 1000;
-const TS_SPEND_THRESHOLD = 3540;
+// Troubleshoot eligibility spend bar. Set to the owner's stated rule (spent > 3,000 in the
+// last 7 days) on 2026-09-17; it was 3540, which meant the Bucket Health "TS Eligible" filter
+// (built to the 3,000 rule) disagreed with GM Pending TS / Troubleshoot Compliance — 44 vs 39
+// sellers — and made it unclear which list was the real to-do. One number now, everywhere.
+const TS_SPEND_THRESHOLD = 3000;
 const TS_DAYS_THRESHOLD = 7;
 const SPEND_THRESHOLD = 3540;
 const ACTIVE_DAYS = 45;
@@ -5502,14 +5506,14 @@ function renderSellerView() {
 // BUCKETS are profitability buckets and only make sense for sellers that have a W-1 PNL,
 // whereas spend eligibility does not need a PNL at all — 16 of the 73 TS-eligible sellers
 // have no PNL and would be invisible if these reused the PNL base.
-const TS_ELIGIBLE_MIN = 3000;   // owner's rule: spent > 3,000 in the last 7 days
+const TS_ELIGIBLE_MIN = TS_SPEND_THRESHOLD;   // single source of truth — see TS_SPEND_THRESHOLD
 const SPEND_FILTERS = {
   "💸 3K Spenders (active)": s => (s.spend_7d || 0) > SPEND_THRESHOLD && (s.yesterday_spend || 0) > 1,
   // Matches GM Pending TS View / Troubleshoot Compliance: spend AND no TS in the last
   // TS_DAYS_THRESHOLD days. Without the recency half this listed sellers already
   // troubleshot this week (29 of 73 on 2026-09-17), so it read as "could be done on spend"
   // rather than "still needs doing". Threshold stays at the owner's 3,000.
-  "🛠 TS Eligible (7d > 3K)": s => (s.spend_7d || 0) > TS_ELIGIBLE_MIN
+  "🛠 TS Eligible (same as TS To-Do)": s => (s.spend_7d || 0) > TS_ELIGIBLE_MIN
     && (s.ts_days_since == null || s.ts_days_since > TS_DAYS_THRESHOLD),
 };
 const BUCKETS = {
@@ -6546,6 +6550,25 @@ function renderTroubleshoot() {
     ${sections || '<div class="pending-card"><h4>No sellers match the current filter.</h4></div>'}
   </div>`;
 }
+function _wireTsTodoExport(eligible) {
+  const b = document.getElementById('ts-todo-export');
+  if (!b) return;
+  b.addEventListener('click', () => {
+    if (!eligible.length) return;
+    exportRowsAsCSV(eligible.map((r, i) => ({
+      priority: i + 1,
+      seller_id: r.seller_id,
+      seller_name: r.seller_name,
+      gc: DISPLAY[r.gc] || r.gc,
+      last_7d_spend: r.spend,
+      last_ts_date: r.last_ts_date || 'never',
+      days_since_last_ts: r.daysSince == null ? '' : r.daysSince,
+      days_overdue: r.daysSince == null ? 'never had one' : r.overdue,
+      total_ts: r.total_ts || 0,
+    })), `ts-todo-${localISODate(new Date())}`);
+  });
+}
+
 function renderEscalation()  { document.getElementById('sub-escalation').innerHTML = `<div class="card"><h3>Escalation Compliance <span class="pending-tag">AWAITING SCHEMA</span></h3><div class="pending-card"><h4>View definition pending</h4></div></div>`; }
 
 // GM Pending TS View — a single prioritized list of every seller ELIGIBLE for
@@ -6617,7 +6640,7 @@ function renderGMPendingTS() {
   }).join('');
 
   host.innerHTML = `<div class="card">
-    <h3>🎯 GM Pending TS View <span class="src-tag">LIVE</span></h3>
+    <h3>🛠 Troubleshoot To-Do <span class="src-tag">LIVE</span></h3>
     <p style="color:#475569;font-size:12px;margin:0 0 12px 0;line-height:1.6;">
       Every seller <b>eligible for their next Troubleshoot</b> — last-7d spend &gt; ${fmtNum(TS_SPEND_THRESHOLD)}
       <b>and</b> more than ${TS_DAYS_THRESHOLD} days since their last T/S (or never had one). Sorted by priority
@@ -6635,6 +6658,19 @@ function renderGMPendingTS() {
         <div class="sl-value" style="color:#047857;">${fmtNum(totalSpend)}</div>
         <div class="sl-sub">sum across eligible sellers</div>
       </div>
+      ${MKT_GCS.filter(g => eligible.some(r => r.gc === g)).map(g => {
+        const mine = eligible.filter(r => r.gc === g);
+        const od = mine.filter(r => r.daysSince === null || r.overdue >= 14).length;
+        return `<div class="sl-card">
+          <div class="sl-label">${escHtml(DISPLAY[g] || g)}</div>
+          <div class="sl-value">${mine.length}</div>
+          <div class="sl-sub">${od} overdue 14d+</div>
+        </div>`;
+      }).join('')}
+    </div>
+    <div class="filter-bar" style="margin-top:12px;">
+      <span class="lbl">Work top-down — highest spend first.</span>
+      <button id="ts-todo-export" class="chip" type="button" style="margin-left:auto;cursor:pointer;">⬇ Export to-do list (CSV)</button>
     </div>
     <div class="tbl-wrap" style="margin-top:14px;">
       <table class="t">
@@ -6647,6 +6683,7 @@ function renderGMPendingTS() {
       </table>
     </div>
   </div>`;
+  _wireTsTodoExport(eligible);
 }
 
 let _revcompDecision = 'revived';   // 'all' | 'revived' | 'churn' | 'self_serve' | 'postponed' | ''
