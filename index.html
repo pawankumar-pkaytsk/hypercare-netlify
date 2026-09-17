@@ -3086,7 +3086,7 @@ const SHEETS_FAILED_PLACEHOLDER = /^FILL_IN_/;
 // Bumped on every push so the UI can show which build the user is actually
 // running. If this string doesn't match the latest deploy, the browser is
 // serving a cached/older version.
-const BUILD_VERSION = "2026-09-12 · Bucket Health counts only sellers with a real PNL, and reconciles against Seller View";
+const BUILD_VERSION = "2026-09-17 · Bucket Health: 3K Spenders + TS Eligible filters with a Spend 7d column";
 // Optional convenience: persist file IDs to localStorage so you don't have to
 // edit the file every redeploy. If a value is set in localStorage it takes
 // precedence over the hard-coded one above. See window.hcSetSheetId() helper.
@@ -4320,7 +4320,16 @@ function buildDashboardData(hyp, calls, revived, tasks, troubleshoot, chatReply,
   const today0 = new Date(); today0.setHours(0,0,0,0);
   const chatBy = (chatReply && chatReply.bySeller) ? chatReply.bySeller : {};
   const fundsBy = (remainingFunds && remainingFunds.bySeller) ? remainingFunds.bySeller : {};
+  // seller_id -> last_7d_spend, from card 10189 (the Troubleshoot source). Reused rather
+  // than pulling card 7669 into the marketing job, which runs 4-6x/day — 10189 is already
+  // fetched by the daily refresh and carries the same trailing-7-day figure.
+  const _ts7d = {};
+  ((troubleshoot && troubleshoot.rows) || []).forEach(r => {
+    if (r && r.seller_id && r.last_7d_spend != null) _ts7d[r.seller_id] = r.last_7d_spend;
+  });
   function attach(s) {
+    // null (not 0) when the seller has no troubleshoot row — unknown, not "spent nothing".
+    s.spend_7d = Object.prototype.hasOwnProperty.call(_ts7d, s.seller_id) ? _ts7d[s.seller_id] : null;
     const c = calls.bySeller[s.seller_id] || null;
     s.call_total         = c ? c.total : 0;
     s.call_connected     = c ? c.connected : 0;
@@ -5484,6 +5493,15 @@ function renderSellerView() {
 // therefore a superset of ">-20" (same spend rule, wider PNL floor), matching how
 // ">-20" already works. If you ever need an exclusive -30..-20 band, add a separate
 // predicate rather than changing these.
+// Spend-only filters. Kept SEPARATE from BUCKETS because they run over a different base:
+// BUCKETS are profitability buckets and only make sense for sellers that have a W-1 PNL,
+// whereas spend eligibility does not need a PNL at all — 16 of the 73 TS-eligible sellers
+// have no PNL and would be invisible if these reused the PNL base.
+const TS_ELIGIBLE_MIN = 3000;   // owner's rule: spent > 3,000 in the last 7 days
+const SPEND_FILTERS = {
+  "💸 3K Spenders (active)": s => (s.spend_7d || 0) > SPEND_THRESHOLD && (s.yesterday_spend || 0) > 1,
+  "🛠 TS Eligible (7d > 3K)": s => (s.spend_7d || 0) > TS_ELIGIBLE_MIN,
+};
 const BUCKETS = {
   ">-30":          s => s.pnl_w20 != null && s.pnl_w20 > -30 && s.spend_w20 != null && s.spend_w20 > SPEND_THRESHOLD,
   ">-20":          s => s.pnl_w20 != null && s.pnl_w20 > -20 && s.spend_w20 != null && s.spend_w20 > SPEND_THRESHOLD,
@@ -5597,21 +5615,29 @@ function renderBucketHealth() {
   const all = roster.filter(s => s.pnl_w20 != null && s.pnl_w20 !== 0);
   const zeroPnl = roster.filter(s => s.pnl_w20 === 0).length;
   const noPnl = roster.filter(s => s.pnl_w20 == null).length;
-  let sellers = all;
-  if (activeBucketFilter !== "__all__") sellers = all.filter(BUCKETS[activeBucketFilter]);
+  // Spend filters run over the FULL roster; PNL buckets over the PNL base.
+  const isSpendFilter = Object.prototype.hasOwnProperty.call(SPEND_FILTERS, activeBucketFilter);
+  const base = isSpendFilter ? roster : all;
+  let sellers = base;
+  if (activeBucketFilter !== "__all__") {
+    sellers = base.filter(SPEND_FILTERS[activeBucketFilter] || BUCKETS[activeBucketFilter]);
+  }
   const counts = { "__all__": all.length };
   for (const [k, fn] of Object.entries(BUCKETS)) counts[k] = all.filter(fn).length;
-  const dd = ["__all__",">-30",">-20","Potential Hit","Objective Hit","Subjective Hit","Missed Hit"]
+  for (const [k, fn] of Object.entries(SPEND_FILTERS)) counts[k] = roster.filter(fn).length;
+  const noSpend7d = roster.filter(s => s.spend_7d == null).length;
+  const dd = ["__all__",">-30",">-20","Potential Hit","Objective Hit","Subjective Hit","Missed Hit",
+              ...Object.keys(SPEND_FILTERS)]
     .map(k => `<option value="${k}"${activeBucketFilter===k?' selected':''}>${k === '__all__' ? 'All sellers with a PNL' : k}  (${counts[k]})</option>`).join('');
   const wL = DATA.week_labels || ['W-1','W-2','W-3'];
   const tbl = `<div class="tbl-wrap"><table class="t"><thead><tr>
     <th>Seller ID</th><th>Seller Name</th><th>GC</th>
-    <th class="num">Today</th><th class="num">Yesterday</th>
+    <th class="num">Today</th><th class="num">Yesterday</th><th class="num">Spend 7d</th>
     <th class="num">PNL ${wL[0]}</th><th class="num">Spend ${wL[0]}</th>
     <th class="num">PNL ${wL[1]}</th><th class="num">Spend ${wL[1]}</th>
     <th class="num">PNL ${wL[2]}</th><th class="num">Spend ${wL[2]}</th>
     </tr></thead><tbody>
-    ${sellers.map(s => `<tr>${sellerIdCell(s.seller_id)}<td>${s.seller_name || '<span class="empty-cell">—</span>'}</td><td class="gc">${s.gc_display}</td><td class="num">${fmtNum(s.today_spend)}</td><td class="num">${fmtNum(s.yesterday_spend)}</td><td class="num">${fmtPNL(s.pnl_w20)}</td><td class="num">${fmtNum(s.spend_w20)}</td><td class="num">${fmtPNL(s.pnl_w19)}</td><td class="num">${fmtNum(s.spend_w19)}</td><td class="num">${fmtPNL(s.pnl_w18)}</td><td class="num">${fmtNum(s.spend_w18)}</td></tr>`).join('')}
+    ${sellers.map(s => `<tr>${sellerIdCell(s.seller_id)}<td>${s.seller_name || '<span class="empty-cell">—</span>'}</td><td class="gc">${s.gc_display}</td><td class="num">${fmtNum(s.today_spend)}</td><td class="num">${fmtNum(s.yesterday_spend)}</td><td class="num" style="font-weight:600;color:${(s.spend_7d || 0) > TS_ELIGIBLE_MIN ? '#047857' : '#475569'};">${s.spend_7d == null ? '<span class="empty-cell">—</span>' : fmtNum(s.spend_7d)}</td><td class="num">${fmtPNL(s.pnl_w20)}</td><td class="num">${fmtNum(s.spend_w20)}</td><td class="num">${fmtPNL(s.pnl_w19)}</td><td class="num">${fmtNum(s.spend_w19)}</td><td class="num">${fmtPNL(s.pnl_w18)}</td><td class="num">${fmtNum(s.spend_w18)}</td></tr>`).join('')}
     </tbody></table></div>`;
   document.getElementById('sub-bucket').innerHTML = `
     <div class="card">
@@ -5623,10 +5649,14 @@ function renderBucketHealth() {
         <span style="font-size:11px;color:#94a3b8;">All thresholds use Spend &gt; ${SPEND_THRESHOLD}.</span>
       </div>
       <p style="color:#64748b;font-size:11px;margin:0 0 10px 0;line-height:1.6;">
-        <b>Why this differs from Seller View:</b> Seller View lists all <b>${roster.length}</b> assigned sellers.
-        Bucket Health can only assess the <b>${all.length}</b> with a week-1 PNL —
-        ${noPnl} have no card-11011 PNL record in the last 3 ISO weeks, and ${zeroPnl} show exactly 0% (spend present, PNL not computed).
-        ${roster.length} = ${all.length} + ${noPnl} + ${zeroPnl}.
+        ${isSpendFilter
+          ? `<b>Spend filter — runs over all ${roster.length} assigned sellers</b>, not just those with a PNL, because spend
+             eligibility doesn't need one. Trailing-7-day spend comes from card 10189 (same figure Troubleshoot Compliance uses);
+             ${noSpend7d} seller${noSpend7d === 1 ? ' has' : 's have'} no 7-day record and count as not eligible.`
+          : `<b>Why this differs from Seller View:</b> Seller View lists all <b>${roster.length}</b> assigned sellers.
+             Bucket Health can only assess the <b>${all.length}</b> with a week-1 PNL —
+             ${noPnl} have no card-11011 PNL record in the last 3 ISO weeks, and ${zeroPnl} show exactly 0% (spend present, PNL not computed).
+             ${roster.length} = ${all.length} + ${noPnl} + ${zeroPnl}.`}
       </p>
       ${tbl}
       <p style="color:#94a3b8;font-size:11px;margin-top:6px;">${sellers.length} sellers shown${activeBucketFilter !== '__all__' ? ` (filter: ${activeBucketFilter})` : ''}.</p>
