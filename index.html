@@ -3086,7 +3086,7 @@ const SHEETS_FAILED_PLACEHOLDER = /^FILL_IN_/;
 // Bumped on every push so the UI can show which build the user is actually
 // running. If this string doesn't match the latest deploy, the browser is
 // serving a cached/older version.
-const BUILD_VERSION = "2026-09-17 · one TS to-do list: threshold unified at 3000, tab renamed, per-GC queues + CSV export";
+const BUILD_VERSION = "2026-09-17 · TS To-Do defaults to Due today, a small list that changes every day";
 // Optional convenience: persist file IDs to localStorage so you don't have to
 // edit the file every redeploy. If a value is set in localStorage it takes
 // precedence over the hard-coded one above. See window.hcSetSheetId() helper.
@@ -6574,6 +6574,10 @@ function renderEscalation()  { document.getElementById('sub-escalation').innerHT
 // GM Pending TS View — a single prioritized list of every seller ELIGIBLE for
 // their next Troubleshoot (last-7d spend > threshold AND >Nd since last T/S, or
 // never had one), across the GM's book, sorted so the GM picks top-down.
+// TS To-Do scope. Default 'today' = sellers that crossed the 7-day mark TODAY, i.e. the
+// small set that is genuinely new each day (~4). 'all' is the full backlog (~44), which
+// barely changes day to day and is what made the view hard to act on.
+let tsTodoScope = 'today';   // 'today' | 'all'
 function renderGMPendingTS() {
   const host = document.getElementById('sub-gmpendingts');
   if (!host) return;
@@ -6610,12 +6614,18 @@ function renderGMPendingTS() {
   });
   // Priority: highest recent spend first, then most overdue.
   eligible.sort((a, b) => (b.spend - a.spend) || (b.overdue - a.overdue));
+  // "Due today" = became eligible today: exactly TS_DAYS_THRESHOLD+1 days since the last
+  // T/S (or never had one, which is due every day until it's done).
+  const isDueToday = r => r.daysSince === null || r.daysSince === TS_DAYS_THRESHOLD + 1;
+  const dueToday = eligible.filter(isDueToday);
+  const backlog = eligible.length - dueToday.length;
+  const shown = tsTodoScope === 'today' ? dueToday : eligible;
 
-  const totalSpend = eligible.reduce((s, r) => s + r.spend, 0);
+  const totalSpend0 = eligible.reduce((s, r) => s + r.spend, 0);
   const neverCount = eligible.filter(r => r.daysSince === null).length;
   const scopeNote = narrowed ? `${selected.map(g => DISPLAY[g] || g).join(', ')}` : 'all Marketing GCs';
 
-  const rows = eligible.map((r, i) => {
+  const rows = shown.map((r, i) => {
     const display = DISPLAY[r.gc] || r.gc;
     const lastCell = r.last_ts_date
       ? `${escHtml(r.last_ts_date)} <span style="color:#94a3b8;font-size:11px;">(${r.daysSince}d ago)</span>`
@@ -6634,32 +6644,38 @@ function renderGMPendingTS() {
       <td class="num" style="font-weight:700;color:#047857;">${fmtNum(r.spend)}</td>
       <td style="white-space:nowrap;color:#475569;">${lastCell}</td>
       <td class="num">${overdueCell}</td>
-      <td class="num">${r.total_ts || 0}</td>
       <td>${actionsCell}</td>
     </tr>`;
   }).join('');
 
   host.innerHTML = `<div class="card">
     <h3>🛠 Troubleshoot To-Do <span class="src-tag">LIVE</span></h3>
-    <p style="color:#475569;font-size:12px;margin:0 0 12px 0;line-height:1.6;">
-      Every seller <b>eligible for their next Troubleshoot</b> — last-7d spend &gt; ${fmtNum(TS_SPEND_THRESHOLD)}
-      <b>and</b> more than ${TS_DAYS_THRESHOLD} days since their last T/S (or never had one). Sorted by priority
-      (highest recent spend first, then most overdue) so you can pick top-down. Scope: ${escHtml(scopeNote)}.
-      Use the GC chips above to narrow.
+    <p style="color:#475569;font-size:12px;margin:0 0 10px 0;line-height:1.6;">
+      ${tsTodoScope === 'today'
+        ? `<b>Do these today.</b> ${dueToday.length} seller${dueToday.length === 1 ? '' : 's'} became eligible today —
+           spend &gt; ${fmtNum(TS_SPEND_THRESHOLD)} in the last 7 days and their last T/S was exactly ${TS_DAYS_THRESHOLD + 1} days ago.
+           This list is different every day. ${backlog} older one${backlog === 1 ? '' : 's'} are still outstanding — see <b>All pending</b>.`
+        : `<b>Everything outstanding</b> — ${eligible.length} sellers past due, newest-eligible and biggest spenders first.
+           ${dueToday.length} of them became eligible today.`}
+      Scope: ${escHtml(scopeNote)}.
     </p>
+    <div class="filter-bar" style="margin:0 0 12px 0;">
+      <span class="chip ${tsTodoScope === 'today' ? 'on' : ''}" data-ts-scope="today">📌 Due today (${dueToday.length})</span>
+      <span class="chip ${tsTodoScope === 'all' ? 'on' : ''}" data-ts-scope="all">All pending (${eligible.length})</span>
+    </div>
     <div class="sl-grid">
       <div class="sl-card overall">
-        <div class="sl-label">Pending next T/S</div>
-        <div class="sl-value">${fmtNum(eligible.length)}</div>
-        <div class="sl-sub">${neverCount} never had a T/S</div>
+        <div class="sl-label">Due today</div>
+        <div class="sl-value">${fmtNum(dueToday.length)}</div>
+        <div class="sl-sub">${backlog} older still outstanding${neverCount ? ` · ${neverCount} never had a T/S` : ''}</div>
       </div>
       <div class="sl-card">
         <div class="sl-label">Last-7d spend at stake</div>
-        <div class="sl-value" style="color:#047857;">${fmtNum(totalSpend)}</div>
-        <div class="sl-sub">sum across eligible sellers</div>
+        <div class="sl-value" style="color:#047857;">${fmtNum(shown.reduce((a, r) => a + r.spend, 0))}</div>
+        <div class="sl-sub">across the ${shown.length} shown${tsTodoScope === 'today' ? ` · ${fmtNum(totalSpend0)} incl. backlog` : ''}</div>
       </div>
-      ${MKT_GCS.filter(g => eligible.some(r => r.gc === g)).map(g => {
-        const mine = eligible.filter(r => r.gc === g);
+      ${MKT_GCS.filter(g => shown.some(r => r.gc === g)).map(g => {
+        const mine = shown.filter(r => r.gc === g);
         const od = mine.filter(r => r.daysSince === null || r.overdue >= 14).length;
         return `<div class="sl-card">
           <div class="sl-label">${escHtml(DISPLAY[g] || g)}</div>
@@ -6676,14 +6692,16 @@ function renderGMPendingTS() {
       <table class="t">
         <thead><tr>
           <th class="num">#</th><th>Seller ID</th><th>Seller Name</th><th>GC</th>
-          <th class="num">Last 7d Spend</th><th>Last T/S Date</th><th class="num">Overdue</th>
-          <th class="num">Total T/S</th><th>Last Actions</th>
+          <th class="num">Last 7d Spend</th><th>Last T/S Date</th><th class="num">Overdue</th><th>Last Actions</th>
         </tr></thead>
         <tbody>${rows || `<tr><td colspan="9" style="text-align:center;color:#94a3b8;padding:22px;">🎉 No sellers pending — everyone eligible has a recent T/S.</td></tr>`}</tbody>
       </table>
     </div>
   </div>`;
-  _wireTsTodoExport(eligible);
+  _wireTsTodoExport(shown);
+  host.querySelectorAll('[data-ts-scope]').forEach(el => el.addEventListener('click', () => {
+    tsTodoScope = el.dataset.tsScope; renderGMPendingTS();
+  }));
 }
 
 let _revcompDecision = 'revived';   // 'all' | 'revived' | 'churn' | 'self_serve' | 'postponed' | ''
