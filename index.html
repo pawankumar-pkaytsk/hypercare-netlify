@@ -3086,7 +3086,7 @@ const SHEETS_FAILED_PLACEHOLDER = /^FILL_IN_/;
 // Bumped on every push so the UI can show which build the user is actually
 // running. If this string doesn't match the latest deploy, the browser is
 // serving a cached/older version.
-const BUILD_VERSION = "2026-09-17 · Bucket Health: 3K Spenders + TS Eligible filters with a Spend 7d column";
+const BUILD_VERSION = "2026-09-17 · TS Eligible filter now clears once the troubleshoot is done + Last TS column";
 // Optional convenience: persist file IDs to localStorage so you don't have to
 // edit the file every redeploy. If a value is set in localStorage it takes
 // precedence over the hard-coded one above. See window.hcSetSheetId() helper.
@@ -4323,13 +4323,18 @@ function buildDashboardData(hyp, calls, revived, tasks, troubleshoot, chatReply,
   // seller_id -> last_7d_spend, from card 10189 (the Troubleshoot source). Reused rather
   // than pulling card 7669 into the marketing job, which runs 4-6x/day — 10189 is already
   // fetched by the daily refresh and carries the same trailing-7-day figure.
-  const _ts7d = {};
+  const _ts7d = {}, _tsLast = {};
   ((troubleshoot && troubleshoot.rows) || []).forEach(r => {
-    if (r && r.seller_id && r.last_7d_spend != null) _ts7d[r.seller_id] = r.last_7d_spend;
+    if (!r || !r.seller_id) return;
+    if (r.last_7d_spend != null) _ts7d[r.seller_id] = r.last_7d_spend;
+    if (r.last_ts_date) _tsLast[r.seller_id] = r.last_ts_date;
   });
   function attach(s) {
     // null (not 0) when the seller has no troubleshoot row — unknown, not "spent nothing".
     s.spend_7d = Object.prototype.hasOwnProperty.call(_ts7d, s.seller_id) ? _ts7d[s.seller_id] : null;
+    // Last troubleshoot + recency, so the TS-eligible filter can drop sellers already done.
+    s.ts_last_date = _tsLast[s.seller_id] || null;
+    s.ts_days_since = s.ts_last_date ? daysSince(s.ts_last_date) : null;   // null = never had one
     const c = calls.bySeller[s.seller_id] || null;
     s.call_total         = c ? c.total : 0;
     s.call_connected     = c ? c.connected : 0;
@@ -5500,7 +5505,12 @@ function renderSellerView() {
 const TS_ELIGIBLE_MIN = 3000;   // owner's rule: spent > 3,000 in the last 7 days
 const SPEND_FILTERS = {
   "💸 3K Spenders (active)": s => (s.spend_7d || 0) > SPEND_THRESHOLD && (s.yesterday_spend || 0) > 1,
-  "🛠 TS Eligible (7d > 3K)": s => (s.spend_7d || 0) > TS_ELIGIBLE_MIN,
+  // Matches GM Pending TS View / Troubleshoot Compliance: spend AND no TS in the last
+  // TS_DAYS_THRESHOLD days. Without the recency half this listed sellers already
+  // troubleshot this week (29 of 73 on 2026-09-17), so it read as "could be done on spend"
+  // rather than "still needs doing". Threshold stays at the owner's 3,000.
+  "🛠 TS Eligible (7d > 3K)": s => (s.spend_7d || 0) > TS_ELIGIBLE_MIN
+    && (s.ts_days_since == null || s.ts_days_since > TS_DAYS_THRESHOLD),
 };
 const BUCKETS = {
   ">-30":          s => s.pnl_w20 != null && s.pnl_w20 > -30 && s.spend_w20 != null && s.spend_w20 > SPEND_THRESHOLD,
@@ -5632,12 +5642,12 @@ function renderBucketHealth() {
   const wL = DATA.week_labels || ['W-1','W-2','W-3'];
   const tbl = `<div class="tbl-wrap"><table class="t"><thead><tr>
     <th>Seller ID</th><th>Seller Name</th><th>GC</th>
-    <th class="num">Today</th><th class="num">Yesterday</th><th class="num">Spend 7d</th>
+    <th class="num">Today</th><th class="num">Yesterday</th><th class="num">Spend 7d</th><th>Last TS</th>
     <th class="num">PNL ${wL[0]}</th><th class="num">Spend ${wL[0]}</th>
     <th class="num">PNL ${wL[1]}</th><th class="num">Spend ${wL[1]}</th>
     <th class="num">PNL ${wL[2]}</th><th class="num">Spend ${wL[2]}</th>
     </tr></thead><tbody>
-    ${sellers.map(s => `<tr>${sellerIdCell(s.seller_id)}<td>${s.seller_name || '<span class="empty-cell">—</span>'}</td><td class="gc">${s.gc_display}</td><td class="num">${fmtNum(s.today_spend)}</td><td class="num">${fmtNum(s.yesterday_spend)}</td><td class="num" style="font-weight:600;color:${(s.spend_7d || 0) > TS_ELIGIBLE_MIN ? '#047857' : '#475569'};">${s.spend_7d == null ? '<span class="empty-cell">—</span>' : fmtNum(s.spend_7d)}</td><td class="num">${fmtPNL(s.pnl_w20)}</td><td class="num">${fmtNum(s.spend_w20)}</td><td class="num">${fmtPNL(s.pnl_w19)}</td><td class="num">${fmtNum(s.spend_w19)}</td><td class="num">${fmtPNL(s.pnl_w18)}</td><td class="num">${fmtNum(s.spend_w18)}</td></tr>`).join('')}
+    ${sellers.map(s => `<tr>${sellerIdCell(s.seller_id)}<td>${s.seller_name || '<span class="empty-cell">—</span>'}</td><td class="gc">${s.gc_display}</td><td class="num">${fmtNum(s.today_spend)}</td><td class="num">${fmtNum(s.yesterday_spend)}</td><td class="num" style="font-weight:600;color:${(s.spend_7d || 0) > TS_ELIGIBLE_MIN ? '#047857' : '#475569'};">${s.spend_7d == null ? '<span class="empty-cell">—</span>' : fmtNum(s.spend_7d)}</td><td style="white-space:nowrap;">${s.ts_last_date ? `<span style="color:#475569;">${fmtDDMMYY(s.ts_last_date) || escHtml(s.ts_last_date)}</span> <span style="color:${(s.ts_days_since != null && s.ts_days_since <= TS_DAYS_THRESHOLD) ? '#b45309' : '#94a3b8'};font-size:11px;font-weight:600;">${s.ts_days_since == null ? '' : `(${s.ts_days_since}d)`}</span>` : '<span class="empty-cell">never</span>'}</td><td class="num">${fmtPNL(s.pnl_w20)}</td><td class="num">${fmtNum(s.spend_w20)}</td><td class="num">${fmtPNL(s.pnl_w19)}</td><td class="num">${fmtNum(s.spend_w19)}</td><td class="num">${fmtPNL(s.pnl_w18)}</td><td class="num">${fmtNum(s.spend_w18)}</td></tr>`).join('')}
     </tbody></table></div>`;
   document.getElementById('sub-bucket').innerHTML = `
     <div class="card">
