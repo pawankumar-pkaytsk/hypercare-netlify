@@ -1,0 +1,93 @@
+name: Monday ISO-week rollover refresh
+
+# Card 11011's w1/w2/w3 columns roll at Monday 00:00 UTC, so any snapshot taken on Sunday
+# reads "1 week behind" from midnight onward and the dashboard shows the amber stale-week
+# banner all Monday morning IST.
+#
+# TWO EARLIER ATTEMPTS AT THIS FAILED, for the same reason:
+#   1. moving the crons off the :00 slot   (2026-08-31)
+#   2. adding extra Monday-only cron slots (2026-09-07)
+# GitHub delays EVERY scheduled run on this repo by a broadly constant ~4-5h
+# (00:23 -> 04:59, 06:19 -> 11:31, 12:41 -> 16:28 on 2026-09-20), so more slots do not
+# help — they are all pushed back equally, and the first one still lands around 05:00 UTC.
+#
+# So instead of fighting the delay, this job is scheduled EARLY — Sunday 20:00 UTC — and
+# WAITS until just after the rollover before pulling:
+#   * started on time (Sun 20:00)      -> sleeps ~4h, pulls at Mon 00:05 UTC
+#   * started late    (Mon 00:30+)     -> already past the rollover, pulls immediately
+# Either way the refreshed snapshot lands within minutes of the rollover instead of ~05:00,
+# i.e. well before anyone opens the dashboard on Monday morning IST.
+#
+# The repo is public, so the waiting time costs no billable Actions minutes.
+on:
+  schedule:
+    - cron: "0 20 * * 0"   # Sunday 20:00 UTC — deliberately early; the job waits, see above
+  workflow_dispatch: {}
+
+# Share the lock so this never races the other refresh jobs on push.
+concurrency:
+  group: hypercare-refresh
+  cancel-in-progress: false
+
+permissions:
+  contents: write
+  pages: write
+
+jobs:
+  rollover:
+    runs-on: ubuntu-latest
+    timeout-minutes: 330      # must comfortably exceed the ~4h05m worst-case wait below
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Wait until just after the Monday 00:00 UTC rollover
+        run: |
+          WAIT=$(python3 - <<'PY'
+          import datetime
+          now = datetime.datetime.utcnow()
+          days = (0 - now.weekday()) % 7                     # 0 = Monday
+          target = (now + datetime.timedelta(days=days)).replace(
+              hour=0, minute=5, second=0, microsecond=0)
+          if target <= now:                                   # today's slot already passed
+              target += datetime.timedelta(days=7)
+          wait = (target - now).total_seconds()
+          # Only ever wait a short hop to the NEXT rollover. If the next one is more than
+          # 5h away we are already past this week's (GitHub started us late) — run now.
+          print(int(wait) if 0 < wait <= 5 * 3600 else 0)
+          PY
+          )
+          echo "waiting ${WAIT}s (until just after Monday 00:00 UTC)"
+          sleep "$WAIT"
+          date -u '+resuming at %Y-%m-%d %H:%M UTC'
+
+      - name: Rebuild marketingSellers.json (cards 11011 + 7753 + 2787 + 10065)
+        env:
+          HC_REPO: ${{ github.workspace }}
+          METABASE_URL: ${{ secrets.METABASE_URL }}
+          METABASE_USER_EMAIL: ${{ secrets.METABASE_USER_EMAIL }}
+          METABASE_PASSWORD: ${{ secrets.METABASE_PASSWORD }}
+        run: python3 mb/snapshot.py --marketing-only
+
+      - name: Commit if changed
+        run: |
+          git config user.name "hypercare-bot"
+          git config user.email "kickstarter@blitzscale.co"
+          git add mb/marketingSellers.json mb/assignmentHistory.json
+          if git diff --cached --quiet; then
+            echo "No marketing data changes."
+          else
+            git commit -m "Monday rollover refresh ($(date -u +%FT%TZ))"
+            git pull --rebase origin main
+            git push
+            echo "Pushed Monday rollover snapshot."
+          fi
+
+      - name: Force a fresh Pages build (legacy builds can hang)
+        if: always()
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh api -X POST repos/${{ github.repository }}/pages/builds || true
