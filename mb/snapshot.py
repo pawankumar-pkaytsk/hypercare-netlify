@@ -287,9 +287,27 @@ def _canon(s):
     return " ".join(str(s or "").split())
 
 
+_ROSTER_BY_LOWER = None
+
+
 def _gc_canon(s):
+    """Canonicalise a growth-consultant name from card 7753 / 12477.
+
+    Beyond whitespace collapsing and the explicit GC_ALIASES, this falls back to a
+    CASE-INSENSITIVE match against the known rosters. Card 7753 does not normalise case:
+    Sandipan Sarkar arrived as 'SANDIPAN SARKAR' (2026-09-21) while the roster lists him
+    title-cased, so an exact match silently mapped all 8 of his sellers to nobody. Doing
+    this generically means the next ALL-CAPS or lower-cased name costs no code change.
+    """
     c = _canon(s)
-    return GC_ALIASES.get(c, c)
+    if c in GC_ALIASES:
+        return GC_ALIASES[c]
+    global _ROSTER_BY_LOWER
+    if _ROSTER_BY_LOWER is None:
+        _ROSTER_BY_LOWER = {}
+        for n in list(MKT_GCS) + list(REV_GCS) + list(SCA_GCS) + list(GC_ALIASES.values()):
+            _ROSTER_BY_LOWER[str(n).lower()] = n
+    return _ROSTER_BY_LOWER.get(c.lower(), c)
 
 
 # Card 11011 defines its week columns off CURRENT_DATE() (UTC in BigQuery):
