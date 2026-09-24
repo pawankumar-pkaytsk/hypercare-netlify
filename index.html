@@ -4889,8 +4889,57 @@ function bootLoaderDone() {
 // Date objects are serialized as {"$date": epochMs}; we rehydrate on load.
 // ============================================================
 const MB_AGG_KEYS = ["calling","tasks","troubleshoot","chatReply","unassignment","dailyARR","experimental","gcv3Dump","dailyMetrics"];
+// Feeds that are pointless to download in the current UI configuration.
+// dailyARR is 31 MB and is read ONLY by the two Scaling ARR views
+// (scaRenderARRView / renderARRRecovery). While Scaling is delisted
+// (SHOW_SCALING === false) those views are unreachable, so fetching it just
+// burns 31 MB of every user's memory — which is what OOM-ed Chrome for a new
+// GC on 2026-09-24. Re-enabling Scaling automatically re-enables the fetch.
+function mbAggKeys() {
+  return MB_AGG_KEYS.filter(k => (k === "dailyARR" ? SHOW_SCALING : true));
+}
 let HC_AGG = {};
 let HC_AGG_LOADED = false;
+// ---- Call history, loaded on demand ----------------------------------------
+// mb/calling.json ships only the last `eventsWindowDays` of call events (see
+// mb/build.mjs). That covers the Call View default range (last 7 days) and the
+// EOD "calls today" counters, which is all most people ever look at. The full
+// ~120k-event log lives in mb/callingEvents.json (~23 MB) and is fetched only
+// when a view actually asks for a date older than the shipped window.
+let HC_CALL_WINDOW_START = null;   // epoch ms; events before this aren't loaded yet
+let HC_CALL_EVENTS_FULL = false;
+let _hcCallEventsPromise = null;
+// True when `fromISO` needs history we haven't downloaded yet.
+function callEventsNeedFull(fromISO) {
+  if (HC_CALL_EVENTS_FULL || HC_CALL_WINDOW_START == null) return false;
+  const t = new Date(String(fromISO) + "T00:00:00").getTime();
+  return isFinite(t) && t < HC_CALL_WINDOW_START;
+}
+// Fetch the full log once; `onReady` fires after the payload is patched.
+function ensureCallEvents(onReady) {
+  if (HC_CALL_EVENTS_FULL) { if (onReady) onReady(); return Promise.resolve(true); }
+  if (!_hcCallEventsPromise) {
+    _hcCallEventsPromise = fetch("mb/callingEvents.json", { cache: "no-store" })
+      .then(r => (r.ok ? r.json() : null))
+      .then(d => {
+        const evs = d && Array.isArray(d.events) ? d.events : null;
+        if (!evs) throw new Error("callingEvents.json unavailable");
+        if (HC_AGG.calling) HC_AGG.calling.events = evs;
+        if (typeof CACHED_PAYLOAD !== "undefined" && CACHED_PAYLOAD) CACHED_PAYLOAD.call_events = evs;
+        HC_CALL_EVENTS_FULL = true;
+        HC_CALL_WINDOW_START = null;
+        console.log(`[agg] full call history loaded on demand: ${evs.length} events`);
+        return true;
+      })
+      .catch(e => {
+        console.warn("[agg] call history load failed:", e.message);
+        // Leave the flag false so a later view can retry.
+        _hcCallEventsPromise = null;
+        return false;
+      });
+  }
+  return _hcCallEventsPromise.then(ok => { if (ok && onReady) onReady(); return ok; });
+}
 // Revival Compliance feed (cards 9532 + 10065 → post-revival spend per seller).
 let REVIVAL_SPEND = null;
 let PRIORITY_CALLING = null;
@@ -4930,14 +4979,43 @@ async function loadAggregates(force) {
     if (r.ok) manifest = await r.json();
   } catch (e) {}
   if (!manifest || !manifest.sources) return HC_AGG;
-  const keys = MB_AGG_KEYS.filter(k => manifest.sources[k] && !manifest.sources[k].error);
-  await Promise.all(keys.map(async k => {
-    try {
-      const r = await fetch(`mb/${k}.json`, { cache: "no-store" });
-      if (!r.ok) return;
-      HC_AGG[k] = _reviveDates(await r.json());
-    } catch (e) { console.warn(`[agg] ${k} load failed:`, e.message); }
-  }));
+  const keys = mbAggKeys().filter(k => manifest.sources[k] && !manifest.sources[k].error);
+  // Fetch a few at a time rather than all at once. With Promise.all every
+  // response body AND its parsed object were resident simultaneously, so the
+  // peak was far above the sum of the files — enough to OOM a Chrome tab on a
+  // lower-memory machine (2026-09-24). Throttling caps the peak at roughly one
+  // batch of raw bodies on top of the parsed objects we have to keep anyway.
+  const AGG_CONCURRENCY = 3;
+  const queue = keys.slice();
+  async function aggWorker() {
+    for (let k = queue.shift(); k !== undefined; k = queue.shift()) {
+      try {
+        const r = await fetch(`mb/${k}.json`, { cache: "no-store" });
+        if (!r.ok) continue;
+        HC_AGG[k] = _reviveDates(await r.json());
+      } catch (e) { console.warn(`[agg] ${k} load failed:`, e.message); }
+    }
+  }
+  await Promise.all(Array.from({ length: Math.min(AGG_CONCURRENCY, queue.length) }, aggWorker));
+  // Record how far back the shipped call events reach, so views can tell when
+  // they need to pull the full log (see ensureCallEvents).
+  const cal = HC_AGG.calling;
+  if (cal && cal.eventsWindowDays && !HC_CALL_EVENTS_FULL) {
+    // Prefer the builder's exact cutoff; fall back to the oldest event we were
+    // actually given. Never re-derive it from "today minus N days" — that isn't
+    // the same instant and can overstate the window (see mb/build.mjs).
+    let start = typeof cal.eventsFrom === "number" ? cal.eventsFrom : null;
+    if (start == null && Array.isArray(cal.events) && cal.events.length) {
+      start = cal.events.reduce((m, e) => (e && e.ts < m ? e.ts : m), Infinity);
+      if (!isFinite(start)) start = null;
+    }
+    // Unknown window → assume nothing is safely covered, so any Call View range
+    // pulls the full log. Slower, never wrong.
+    HC_CALL_WINDOW_START = start == null ? Infinity : start;
+  } else if (HC_AGG.calling) {
+    // Old snapshot without the split → events array is already complete.
+    HC_CALL_EVENTS_FULL = true; HC_CALL_WINDOW_START = null;
+  }
   const got = Object.keys(HC_AGG);
   if (got.length) console.log(`[agg] Metabase snapshot: ${got.length} sources [${got.join(", ")}]` + (manifest.generatedAt ? ` · ${manifest.generatedAt}` : ""));
   window.HC_AGG = HC_AGG;
@@ -5016,6 +5094,10 @@ async function fetchSheets(opts) {
   function fetchOrAgg(key, label) {
     // Served from the snapshot → already loaded, no fetch + not counted.
     if (HC_AGG[key]) return Promise.resolve(null);
+    // Deliberately skipped for this UI configuration (see mbAggKeys) — don't
+    // fall back to the Google sheet either, or we'd re-download what we just
+    // decided not to load.
+    if (mbAggKeys().indexOf(key) === -1 && MB_AGG_KEYS.indexOf(key) !== -1) return Promise.resolve(null);
     return tryFetch(key, label);
   }
   // Creatives Tracker sheets — auto-detect the tab if "Tracker" isn't found.
@@ -5703,6 +5785,12 @@ function buildCallView(ctx) {
 
   // Date-range summary
   const payload = (typeof CACHED_PAYLOAD !== 'undefined' && CACHED_PAYLOAD) ? CACHED_PAYLOAD : null;
+  // Only the last few days of call events ship on page load (see
+  // ensureCallEvents). If this range reaches further back, pull the full log
+  // and re-render — the current pass still renders from what we have so the
+  // table never goes blank.
+  const _needFull = callEventsNeedFull(dateFrom);
+  if (_needFull) ensureCallEvents(() => { try { ctx.onDateChange && ctx.onDateChange(dateFrom, dateTo); } catch (e) {} });
   const events = payload && payload.call_events ? payload.call_events : [];
   const fromTs = new Date(dateFrom + "T00:00:00").getTime();
   const toTs   = new Date(dateTo   + "T23:59:59").getTime();
@@ -5791,7 +5879,8 @@ function buildCallView(ctx) {
 
   const summarySection = !summaryAvailable
     ? `<div class="pending-card"><h4>Loading call events…</h4><p style="color:#64748b;font-size:12px;">Date-range summary populates after the calling sheet fetch completes.</p></div>`
-    : `${quadCards}
+    : `${_needFull ? `<div style="margin:0 0 10px;padding:8px 12px;border-radius:8px;background:rgba(245,158,11,0.10);border:1px solid rgba(245,158,11,0.35);color:#92400e;font-size:12px;">⏳ Loading full call history for dates before the last ${(HC_AGG.calling && HC_AGG.calling.eventsWindowDays) || 10} days — numbers below will update in a moment.</div>` : ''}
+      ${quadCards}
       <div class="sl-grid" style="margin-top:10px;">
         <div class="sl-card overall sl-clickable" data-drill="all" tabindex="0" role="button" aria-label="Drilldown for all selected GCs">
           <div class="sl-label">All Selected GCs (${dateFrom} → ${dateTo})</div>

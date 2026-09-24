@@ -115,8 +115,11 @@ function processCallingCSV(text) {
       gm: gmName,
       status,
       act: actionables,
-      cid: callId,
-      trg: triggerIface,
+      // NOTE: `cid` (call_id) and `trg` (call_trigger_interface) used to be
+      // emitted here but NOTHING in the dashboard ever read ev.cid / ev.trg —
+      // they cost 5.5 MB of the calling feed on every page load, which helped
+      // OOM Chrome tabs (2026-09-24). The per-seller aggregate still keeps
+      // last_call_id / last_trigger, which IS rendered.
     });
 
     if (!agg[sid]) agg[sid] = {

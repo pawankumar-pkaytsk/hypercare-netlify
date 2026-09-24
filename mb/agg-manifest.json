@@ -2,7 +2,7 @@
   "generatedAt": "2026-09-24T09:30:36.763Z",
   "sources": {
     "calling": {
-      "bytes": 30852029
+      "bytes": 6404882
     },
     "tasks": {
       "bytes": 9253403
@@ -27,6 +27,10 @@
     },
     "dailyMetrics": {
       "bytes": 15447965
+    },
+    "callingEvents": {
+      "bytes": 22163032,
+      "events": 122274
     }
   }
 }
