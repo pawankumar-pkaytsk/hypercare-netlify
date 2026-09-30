@@ -4452,8 +4452,10 @@ function buildDashboardData(hyp, calls, revived, tasks, troubleshoot, chatReply,
 
 function saveCache(payload) {
   try {
-    // Strip out the heavy per-event array — refetched fresh each load
-    const lite = { ...payload, call_events: null };
+    // Strip the heavy blobs — both are refetched (callContext only on demand),
+    // and stringifying them here would blow the localStorage quota and burn a
+    // lot of memory doing it.
+    const lite = { ...payload, call_events: null, callContext: null };
     localStorage.setItem(CACHE_KEY, JSON.stringify({ ts: Date.now(), payload: lite }));
   } catch (e) { console.warn("cache save failed:", e); }
 }
@@ -5068,8 +5070,11 @@ async function fetchSheets(opts) {
   // served from the snapshot; the rest fall through to Google Sheets below.
   await loadAggregates(opts && opts.forceAggregates);
   // Progress counts only sources fetched LIVE from Google — the Metabase
-  // snapshot sources (in HC_AGG) are already loaded, so they don't count.
-  const _SHEET_COUNT = 22 - Object.keys(HC_AGG).length;
+  // snapshot sources (in HC_AGG) are already loaded, so they don't count, and
+  // neither do the two deferred sources: callContext (on-demand, see
+  // ensureCallContext) and dailyARR when Scaling is delisted (never ticks).
+  const _DEFERRED_SHEETS = 1 + (SHOW_SCALING ? 0 : 1);   // callContext [+ dailyARR]
+  const _SHEET_COUNT = 22 - Object.keys(HC_AGG).length - _DEFERRED_SHEETS;
   // Suppress the full-screen boot loader for BACKGROUND refreshes — only show
   // it on the very first fetch when there's no cached data on screen. This
   // makes re-opening the dashboard or tab-switching feel instant.
@@ -5126,7 +5131,13 @@ async function fetchSheets(opts) {
     fetchOrAgg("chatReply",          "Chat Reply sheet"),
     fetchOrAgg("unassignment",       "Unassignment sheet"),
     tryFetch("remainingFunds",       "Remaining Funds sheet"),
-    fetchOrAgg("callContext",        "Call Context sheet"),
+    // callContext is NOT fetched here — see ensureCallContext(). It is the
+    // single biggest thing the dashboard ever loads (~110 MB of CSV, per the
+    // note in mb/build.mjs explaining why the snapshot pipeline skips it), and
+    // it feeds exactly ONE view (Call History), which renders nothing until a
+    // seller ID is typed. Pulling it on boot is what kept OOM-ing Chrome even
+    // after the mb/*.json feeds were halved.
+    Promise.resolve(null),
     fetchOrAgg("dailyARR",           "Daily ARR sheet"),
     fetchOrAgg("experimental",       "Experimental Sellers sheet"),
     tryFetch("revivalTrack",         "Revival Track sheet"),
@@ -5177,8 +5188,15 @@ async function fetchSheets(opts) {
     { rows: [], count: 0 });
   const remainingFunds = safeParse("Remaining Funds", rfRaw, processRemainingFundsCSV,
     { bySeller: {}, count: 0 });
-  const callContext = HC_AGG.callContext || safeParse("Call Context", ccRaw, processCallContextCSV,
-    { rows: [], count: 0 });
+  // NOTE the null default, not { rows: [] }. callContext is fetched on demand
+  // (ensureCallContext), and Call History decides "already loaded?" by looking
+  // for .rows — an empty array is truthy, so a placeholder object would read as
+  // loaded and the on-demand fetch would never fire. Null means "not yet".
+  // Preserve anything a previous on-demand load already put on the payload so a
+  // background refresh doesn't throw the big sheet away.
+  const callContext = HC_AGG.callContext
+    || safeParse("Call Context", ccRaw, processCallContextCSV, null)
+    || ((typeof CACHED_PAYLOAD !== "undefined" && CACHED_PAYLOAD && CACHED_PAYLOAD.callContext) || null);
   const dailyARR = HC_AGG.dailyARR || safeParse("Daily ARR", arrRaw, processDailyARRCSV,
     { bySeller: {}, count: 0 });
   const experimental = HC_AGG.experimental || safeParse("Experimental", exRaw, processExperimentalCSV,
@@ -10332,6 +10350,53 @@ function _unasSellerName(sid) {
   return (s && s.seller_name) || '';
 }
 let _UNAS_NAME_CACHE = null;
+// ---- Call Context, loaded on demand ---------------------------------------
+// The Call Context "Dump" sheet is ~110 MB of CSV. As a JS string that is double
+// that in memory before parsing even starts, which is why boot used to die
+// around sheet 12-13 of the loader with Chrome's "Out of Memory" (2026-09-30).
+// Nothing but Call History reads it, and Call History needs it only once a
+// seller ID has been entered — so it is fetched then, not on boot.
+let _ccPromise = null;
+let CC_LOADING = false;
+function ensureCallContext(onReady) {
+  const cur = (typeof CACHED_PAYLOAD !== "undefined" && CACHED_PAYLOAD) ? CACHED_PAYLOAD.callContext : null;
+  // `&& !cur.error` matters: the failure object below carries rows:[] , and an
+  // empty array is truthy, so checking .rows alone would treat a failed fetch
+  // as a successful one and never retry.
+  if (cur && cur.rows && !cur.error) { if (onReady) onReady(); return Promise.resolve(true); }
+  if (!_ccPromise) {
+    CC_LOADING = true;
+    _ccPromise = fetchOne("Call Context sheet", SHEETS.callContext)
+      .then(text => {
+        const parsed = processCallContextCSV(text);
+        if (typeof CACHED_PAYLOAD !== "undefined" && CACHED_PAYLOAD) CACHED_PAYLOAD.callContext = parsed;
+        if (typeof DATA !== "undefined" && DATA) DATA.callContext = parsed;
+        console.log(`[callContext] loaded on demand: ${parsed.rows.length} rows`);
+        return true;
+      })
+      .catch(e => {
+        console.warn("[callContext] load failed:", e.message);
+        const err = { rows: [], count: 0, error: e.message };
+        if (typeof CACHED_PAYLOAD !== "undefined" && CACHED_PAYLOAD) CACHED_PAYLOAD.callContext = err;
+        // Deliberately KEEP _ccPromise. Clearing it here would let every
+        // subsequent render re-enter the fetch, and since the fetch re-renders
+        // on completion that is an infinite request loop against a 110 MB
+        // sheet. A retry is an explicit user action — see retryCallContext().
+        return false;
+      })
+      .finally(() => { CC_LOADING = false; });
+  }
+  return _ccPromise.then(ok => { if (onReady) onReady(); return ok; });
+}
+// Clear a previous failure so the next search actually re-fetches. Called from
+// the Search control, i.e. only on a deliberate user action.
+function retryCallContext() {
+  const cur = (typeof CACHED_PAYLOAD !== "undefined" && CACHED_PAYLOAD) ? CACHED_PAYLOAD.callContext : null;
+  if (cur && cur.error) {
+    if (CACHED_PAYLOAD) CACHED_PAYLOAD.callContext = null;
+    _ccPromise = null;
+  }
+}
 function _callConnected(status) {
   if (!status) return false;
   const s = String(status).toUpperCase();
@@ -10347,7 +10412,11 @@ function renderCallHistory() {
 
   // ----- Determine state -----
   const ccError = cc && cc.error ? cc.error : null;
-  const ccLoaded = !!(cc && cc.rows);
+  const ccLoaded = !!(cc && cc.rows && !ccError);
+  // Pull the sheet only once there is something to look up — see
+  // ensureCallContext(). With no seller ID the view shows its normal prompt and
+  // costs nothing.
+  if (sellerId && !ccLoaded && !ccError) ensureCallContext(() => renderCallHistory());
 
   // ----- Filter rows for the entered seller -----
   let rows = [];
@@ -10386,7 +10455,10 @@ function renderCallHistory() {
   // ----- Render -----
   const headerStatus = ccError
     ? `<span class="pending-tag">FETCH FAILED</span>`
-    : ccLoaded ? `<span class="src-tag">LIVE</span>` : `<span class="pending-tag">LOADING</span>`;
+    : ccLoaded ? `<span class="src-tag">LIVE</span>`
+    // Not loaded and nothing asked for yet — that's the resting state now, not a
+    // pending fetch, so don't show a misleading permanent "LOADING".
+    : sellerId ? `<span class="pending-tag">LOADING</span>` : `<span class="src-tag">ON DEMAND</span>`;
 
   const searchCard = `
     <div class="card ch-search-card">
@@ -10409,13 +10481,15 @@ function renderCallHistory() {
     </div>`;
 
   let bodyHTML = "";
-  if (!ccLoaded) {
-    bodyHTML = `<div class="card"><div class="pending-card"><h4>Loading call context…</h4>
-      <p style="color:var(--text-soft);font-size:12px;">If this doesn't populate after a few seconds, the Call Context sheet may not be configured yet or may not be shared with your account.</p>
-    </div></div>`;
-  } else if (ccError) {
+  if (ccError) {
     bodyHTML = `<div class="card"><div class="pending-card"><h4>Call Context sheet error</h4>
       <p style="color:var(--text-soft);font-size:12px;">${escHtml(String(ccError).slice(0, 220))}</p>
+    </div></div>`;
+  } else if (sellerId && !ccLoaded) {
+    // Order matters: the "enter a seller ID" prompt below must win when no ID is
+    // entered, because the sheet is deliberately not loaded until then.
+    bodyHTML = `<div class="card"><div class="pending-card"><h4>Loading call history…</h4>
+      <p style="color:var(--text-soft);font-size:12px;">Fetching the Call Context sheet — it's a large file, so the first search takes a few seconds. Later searches are instant. If it never populates, the sheet may not be shared with your account.</p>
     </div></div>`;
   } else if (!sellerId) {
     bodyHTML = `<div class="card"><div class="pending-card"><h4>Enter a Seller ID to see call history</h4>
@@ -10514,7 +10588,11 @@ function renderCallHistory() {
   const clr   = document.getElementById('ch-clear-btn');
   function submit() {
     const v = (input && input.value || '').trim();
-    if (v === callHistorySellerId) return;
+    // Searching the SAME id again is the retry gesture after a failed sheet
+    // fetch, so clear the error first — otherwise the early-return below would
+    // leave the user stuck on the error card with no way back.
+    retryCallContext();
+    if (v === callHistorySellerId) { renderCallHistory(); return; }
     callHistorySellerId = v;
     renderCallHistory();
     // Restore focus to the input for fast iteration
