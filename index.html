@@ -7056,6 +7056,7 @@ function revRenderSellerView() {
 let revSpendFilter = "active";     // see REV_SPEND_FILTERS
 let revSpendSellerId = "";         // seller-id search box
 let revSpendSort = "spend_7d";     // column key to sort by, desc
+let revSpendGroup = "gc";          // "gc" = bifurcated per GC (default) | "none" = one list
 
 // "Actively spending" tests all three figures, not just spend_7d. spend_7d is
 // null whenever the seller is missing from card 10189, and treating that as
@@ -7107,49 +7108,113 @@ function revRenderSpendingSellers() {
       <div class="sl-sub">₹${fmtNum(Math.round(sum(roster,'spend_7d')))} total 7d</div></div>`;
 
   const sortBtn = (k, lbl) => `<button type="button" class="subtab${revSpendSort===k?' active':''}" data-rev-spend-sort="${k}">${lbl}</button>`;
+  const modeBtn = (k, lbl) => `<button type="button" class="subtab${revSpendGroup===k?' active':''}" data-rev-spend-group="${k}">${lbl}</button>`;
 
-  const tbl = `<div class="tbl-wrap"><table class="t"><thead><tr>
-      <th>Seller ID</th><th>Seller Name</th><th>Revival GC</th>
+  // ---- shared row + table builders, so consolidated and GC-wise stay identical ----
+  // `showGc` is false inside a GC-wise block: the GC is already in the block
+  // heading, so repeating it in every row is noise. The column count changes
+  // with it, which is why the footer colspans below are computed, not hardcoded.
+  const rowHTML = (s, showGc) => {
+    const d = s.days_since_spend;
+    const dCol = d == null ? '#cbd5e1' : (d <= 7 ? '#047857' : (d <= 30 ? '#b45309' : '#b91c1c'));
+    const sevenCol = (s.spend_7d || 0) > TS_ELIGIBLE_MIN ? '#047857' : '#475569';
+    return `<tr>${sellerIdCell(s.seller_id)}
+      <td>${s.seller_name ? escHtml(s.seller_name) : '<span class="empty-cell">—</span>'}</td>
+      ${showGc ? `<td class="gc">${escHtml(s.gc_display || s.crm_gc || '')}</td>` : ''}
+      <td class="num" style="font-weight:${(s.today_spend||0)>0?'600':'400'};">${fmtNum(s.today_spend)}</td>
+      <td class="num" style="font-weight:${(s.yesterday_spend||0)>0?'600':'400'};">${fmtNum(s.yesterday_spend)}</td>
+      <td class="num" style="font-weight:600;color:${sevenCol};">${fmtNum(s.spend_7d)}</td>
+      <td style="color:#475569;white-space:nowrap;">${fmtDDMMYY(s.last_spend_date) || escHtml(s.last_spend_date || '') || '<span class="empty-cell">—</span>'}</td>
+      <td class="num" style="color:${dCol};font-weight:600;">${d == null ? '—' : d}</td>
+      <td class="num">${fmtPNL(s.pnl_w20)}</td>
+      <td class="num">${fmtNum(s.spend_w20)}</td>
+      <td class="num">${fmtNum(s.spend_w19)}</td>
+      <td class="num">${fmtNum(s.spend_w18)}</td></tr>`;
+  };
+  const tableHTML = (list, showGc, totalLabel) => `<div class="tbl-wrap"><table class="t"><thead><tr>
+      <th>Seller ID</th><th>Seller Name</th>${showGc ? '<th>Revival GC</th>' : ''}
       <th class="num">Today</th><th class="num">Yesterday</th><th class="num">Spend 7d</th>
       <th>Last Spend</th><th class="num">Days Since</th>
       <th class="num">PNL W-1</th><th class="num">Spend W-1</th><th class="num">Spend W-2</th><th class="num">Spend W-3</th>
     </tr></thead><tbody>
-    ${rows.map(s => {
-      const d = s.days_since_spend;
-      const dCol = d == null ? '#cbd5e1' : (d <= 7 ? '#047857' : (d <= 30 ? '#b45309' : '#b91c1c'));
-      const sevenCol = (s.spend_7d || 0) > TS_ELIGIBLE_MIN ? '#047857' : '#475569';
-      return `<tr>${sellerIdCell(s.seller_id)}
-        <td>${s.seller_name ? escHtml(s.seller_name) : '<span class="empty-cell">—</span>'}</td>
-        <td class="gc">${escHtml(s.gc_display || s.crm_gc || '')}</td>
-        <td class="num" style="font-weight:${(s.today_spend||0)>0?'600':'400'};">${fmtNum(s.today_spend)}</td>
-        <td class="num" style="font-weight:${(s.yesterday_spend||0)>0?'600':'400'};">${fmtNum(s.yesterday_spend)}</td>
-        <td class="num" style="font-weight:600;color:${sevenCol};">${fmtNum(s.spend_7d)}</td>
-        <td style="color:#475569;white-space:nowrap;">${fmtDDMMYY(s.last_spend_date) || escHtml(s.last_spend_date || '') || '<span class="empty-cell">—</span>'}</td>
-        <td class="num" style="color:${dCol};font-weight:600;">${d == null ? '—' : d}</td>
-        <td class="num">${fmtPNL(s.pnl_w20)}</td>
-        <td class="num">${fmtNum(s.spend_w20)}</td>
-        <td class="num">${fmtNum(s.spend_w19)}</td>
-        <td class="num">${fmtNum(s.spend_w18)}</td></tr>`;
-    }).join('')}
+    ${list.map(s => rowHTML(s, showGc)).join('')}
     </tbody>
     <tfoot><tr style="font-weight:700;background:rgba(99,102,241,0.06);">
-      <td colspan="3">Total — ${fmtNum(rows.length)} seller${rows.length===1?'':'s'} shown</td>
-      <td class="num">${fmtNum(Math.round(sum(rows,'today_spend')))}</td>
-      <td class="num">${fmtNum(Math.round(sum(rows,'yesterday_spend')))}</td>
-      <td class="num">${fmtNum(Math.round(sum(rows,'spend_7d')))}</td>
+      <td colspan="${showGc ? 3 : 2}">${totalLabel}</td>
+      <td class="num">${fmtNum(Math.round(sum(list,'today_spend')))}</td>
+      <td class="num">${fmtNum(Math.round(sum(list,'yesterday_spend')))}</td>
+      <td class="num">${fmtNum(Math.round(sum(list,'spend_7d')))}</td>
       <td colspan="2"></td>
       <td class="num"></td>
-      <td class="num">${fmtNum(Math.round(sum(rows,'spend_w20')))}</td>
-      <td class="num">${fmtNum(Math.round(sum(rows,'spend_w19')))}</td>
-      <td class="num">${fmtNum(Math.round(sum(rows,'spend_w18')))}</td>
+      <td class="num">${fmtNum(Math.round(sum(list,'spend_w20')))}</td>
+      <td class="num">${fmtNum(Math.round(sum(list,'spend_w19')))}</td>
+      <td class="num">${fmtNum(Math.round(sum(list,'spend_w18')))}</td>
     </tr></tfoot></table></div>`;
+
+  let tbl;
+  if (revSpendGroup === 'gc') {
+    // GC-wise bifurcation: a roll-up table comparing the GCs, then one block per
+    // GC. Blocks are ordered by 7-day spend so the biggest book is on top.
+    // Iterate over the GCs actually present in the filtered roster, not REV_GCS,
+    // so a seller carrying an off-roster / misspelt GC string is still shown
+    // instead of silently vanishing from the bifurcated view.
+    const gcOf = s => s.gc_display || s.crm_gc || '(no GC)';
+    const byGc = {};
+    rows.forEach(s => { (byGc[gcOf(s)] = byGc[gcOf(s)] || []).push(s); });
+    const rosterByGc = {};
+    roster.forEach(s => { (rosterByGc[gcOf(s)] = rosterByGc[gcOf(s)] || []).push(s); });
+    const gcNames = Object.keys(byGc).sort((a, b) => sum(byGc[b],'spend_7d') - sum(byGc[a],'spend_7d'));
+
+    const rollup = `<div class="tbl-wrap" style="margin-bottom:14px;"><table class="t"><thead><tr>
+        <th>Revival GC</th><th class="num">Assigned</th><th class="num">Shown</th>
+        <th class="num">Spent Today</th><th class="num">Spent Yest.</th><th class="num">3K+ 7d</th>
+        <th class="num">Today ₹</th><th class="num">Yesterday ₹</th><th class="num">Spend 7d ₹</th>
+      </tr></thead><tbody>
+      ${gcNames.map(g => {
+        const list = byGc[g], all = rosterByGc[g] || [];
+        return `<tr>
+          <td class="gc">${escHtml(g)}</td>
+          <td class="num">${fmtNum(all.length)}</td>
+          <td class="num" style="font-weight:600;">${fmtNum(list.length)}</td>
+          <td class="num">${fmtNum(all.filter(REV_SPEND_FILTERS.today.fn).length)}</td>
+          <td class="num">${fmtNum(all.filter(REV_SPEND_FILTERS.yesterday.fn).length)}</td>
+          <td class="num">${fmtNum(all.filter(REV_SPEND_FILTERS['3k'].fn).length)}</td>
+          <td class="num">${fmtNum(Math.round(sum(list,'today_spend')))}</td>
+          <td class="num">${fmtNum(Math.round(sum(list,'yesterday_spend')))}</td>
+          <td class="num" style="font-weight:700;">${fmtNum(Math.round(sum(list,'spend_7d')))}</td>
+        </tr>`;
+      }).join('')}
+      </tbody>
+      <tfoot><tr style="font-weight:700;background:rgba(99,102,241,0.06);">
+        <td>All Revival GCs</td>
+        <td class="num">${fmtNum(roster.length)}</td>
+        <td class="num">${fmtNum(rows.length)}</td>
+        <td class="num">${fmtNum(roster.filter(REV_SPEND_FILTERS.today.fn).length)}</td>
+        <td class="num">${fmtNum(roster.filter(REV_SPEND_FILTERS.yesterday.fn).length)}</td>
+        <td class="num">${fmtNum(roster.filter(REV_SPEND_FILTERS['3k'].fn).length)}</td>
+        <td class="num">${fmtNum(Math.round(sum(rows,'today_spend')))}</td>
+        <td class="num">${fmtNum(Math.round(sum(rows,'yesterday_spend')))}</td>
+        <td class="num">${fmtNum(Math.round(sum(rows,'spend_7d')))}</td>
+      </tr></tfoot></table></div>`;
+
+    tbl = rollup + gcNames.map(g => `
+      <div style="margin:16px 0 6px;display:flex;align-items:baseline;gap:10px;flex-wrap:wrap;">
+        <h4 style="margin:0;font-size:14px;font-weight:700;color:var(--brand,#4f46e5);">${escHtml(g)}</h4>
+        <span style="font-size:11px;color:#94a3b8;">${byGc[g].length} of ${(rosterByGc[g]||[]).length} assigned · ₹${fmtNum(Math.round(sum(byGc[g],'spend_7d')))} in last 7d</span>
+      </div>
+      ${tableHTML(byGc[g], false, `${escHtml(g)} subtotal — ${byGc[g].length} seller${byGc[g].length===1?'':'s'}`)}`).join('');
+  } else {
+    tbl = tableHTML(rows, true, `Total — ${fmtNum(rows.length)} seller${rows.length===1?'':'s'} shown`);
+  }
 
   host.innerHTML = `
     <div class="card">
       <h3>Spending Sellers — Revival <span class="src-tag">LIVE</span></h3>
       <div class="sl-grid">${cards}</div>
       <p style="color:#64748b;font-size:11px;margin:10px 0 10px 0;line-height:1.6;">
-        Every seller assigned to a Revival GC in one list — not split per GC, so the whole spending base sorts together.
+        ${revSpendGroup === 'gc'
+          ? 'Bifurcated per Revival GC — the roll-up compares the GCs, then one block per GC lists its sellers. Switch to <b>Consolidated</b> to sort the whole base together.'
+          : 'Every seller assigned to a Revival GC in one list, so the whole spending base sorts together. Switch to <b>GC-wise</b> to bifurcate.'}
         Today / Yesterday / Last Spend come from the Hypercare Metrics sheet; <b>Spend 7d comes from card 10189</b>,
         the same trailing-7-day figure Troubleshoot Compliance uses.
         ${no7d ? `${no7d} of ${roster.length} assigned sellers have no 10189 row, so their Spend 7d reads “—” (unknown, not zero) — they still appear if they spent today or yesterday.` : ''}
@@ -7163,6 +7228,8 @@ function revRenderSpendingSellers() {
         <input type="text" id="rev-spend-sid" placeholder="Filter by Seller ID" value="${escHtml(sid)}"
                style="padding:6px 10px;border:1px solid #cbd5e1;border-radius:8px;font-size:13px;min-width:200px;" autocomplete="off" spellcheck="false" />
         ${sid ? `<button type="button" class="refresh-btn" id="rev-spend-clear">Clear</button>` : ''}
+        <span style="font-size:12px;color:#475569;font-weight:600;margin-left:6px;">View:</span>
+        ${modeBtn('gc','GC-wise')}${modeBtn('none','Consolidated')}
         <span style="font-size:12px;color:#475569;font-weight:600;margin-left:6px;">Sort by:</span>
         ${sortBtn('spend_7d','Spend 7d')}${sortBtn('today_spend','Today')}${sortBtn('yesterday_spend','Yesterday')}${sortBtn('spend_w20','Spend W-1')}
         <button type="button" class="refresh-btn" id="rev-spend-export" style="margin-left:auto;">⬇ Export CSV</button>
@@ -7187,6 +7254,9 @@ function revRenderSpendingSellers() {
   if (clr) clr.addEventListener('click', () => { revSpendSellerId = ""; revRenderSpendingSellers(); });
   document.querySelectorAll('[data-rev-spend-sort]').forEach(b => {
     b.addEventListener('click', () => { revSpendSort = b.dataset.revSpendSort; revRenderSpendingSellers(); });
+  });
+  document.querySelectorAll('[data-rev-spend-group]').forEach(b => {
+    b.addEventListener('click', () => { revSpendGroup = b.dataset.revSpendGroup; revRenderSpendingSellers(); });
   });
   const exp = document.getElementById('rev-spend-export');
   if (exp) exp.addEventListener('click', () => {
