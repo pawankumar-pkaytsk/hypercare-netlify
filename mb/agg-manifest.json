@@ -1,36 +1,36 @@
 {
-  "generatedAt": "2026-09-30T10:43:07.706Z",
+  "generatedAt": "2026-10-01T11:10:19.832Z",
   "sources": {
     "callingEvents": {
-      "bytes": 23042537,
-      "events": 126976
+      "bytes": 23301421,
+      "events": 128411
     },
     "calling": {
-      "bytes": 6813195
+      "bytes": 6888491
     },
     "tasks": {
-      "bytes": 9526239
+      "bytes": 9621710
     },
     "troubleshoot": {
-      "bytes": 11005999
+      "bytes": 11096201
     },
     "chatReply": {
-      "bytes": 1182406
+      "bytes": 1190748
     },
     "unassignment": {
-      "bytes": 1942358
+      "bytes": 1964489
     },
     "dailyARR": {
-      "bytes": 33548305
+      "bytes": 33630155
     },
     "experimental": {
-      "bytes": 52381
+      "bytes": 52732
     },
     "gcv3Dump": {
-      "bytes": 8318253
+      "bytes": 8315715
     },
     "dailyMetrics": {
-      "bytes": 15748474
+      "bytes": 15818542
     }
   }
 }
