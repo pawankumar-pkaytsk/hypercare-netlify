@@ -4950,6 +4950,8 @@ let PRIORITY_CALLING = null;
 // Marketing Seller View scope, sourced from Metabase (cards 11011 + 7753) instead
 // of the org-locked Google Inputs sheet — see mb/marketingSellers.json.
 let MKT_SELLERS_MB = null;
+// Revival GC Spending Sellers feed (cards 7753 + 2787 + 10189 + 9353).
+let REV_GC_SELLERS = null;
 // Hypercare Analysis feeds. HC_ANALYSIS is the APPEND-ONLY daily trend history
 // (mb/analysisHistory.json) — cards 2787/7669 keep no history and 10773 is a
 // rolling ~31-day window, so this file is the only durable record of past days.
@@ -5051,6 +5053,11 @@ async function loadAggregates(force) {
   try {
     const r = await fetch("mb/assignmentHistory.json", { cache: "no-store" });
     if (r.ok) { HC_ASSIGN = await r.json(); window.HC_ASSIGN = HC_ASSIGN; }
+  } catch (e) {}
+  // Revival GC Spending Sellers (~800 KB). Small enough to load at boot.
+  try {
+    const r = await fetch("mb/revivalGcSellers.json", { cache: "no-store" });
+    if (r.ok) { REV_GC_SELLERS = await r.json(); window.REV_GC_SELLERS = REV_GC_SELLERS; }
   } catch (e) {}
   return HC_AGG;
 }
@@ -7071,10 +7078,37 @@ const REV_SPEND_FILTERS = {
   "all":       { label: "All assigned sellers",                           fn: () => true },
 };
 
+// Roster for this view. Prefers the Metabase feed (mb/revivalGcSellers.json,
+// cards 7753 + 2787 + 10189 + 9353) over the sheet-derived REVIVAL.sellers.
+// The sheet is org-locked, so only a signed-in browser can read it and nobody
+// can verify it from outside; the Metabase feed is the same source the CRM uses
+// and was reconciled against it on 2026-10-05 (3,259 assigned / 49 spending
+// today or yesterday / 65 with spend this month). It also carries the move date,
+// which the sheet has no column for. Falls back to the sheet if the feed is
+// missing, with the extra columns rendering as "—".
+function revSpendRoster() {
+  const mb = (typeof REV_GC_SELLERS !== "undefined") ? REV_GC_SELLERS : null;
+  const gcs = revSelectedGCs();
+  if (mb && Array.isArray(mb.sellers) && mb.sellers.length) {
+    return { source: 'mb', generatedAt: mb.generatedAt,
+             rows: mb.sellers.filter(s => gcs.includes(s.crm_gc)) };
+  }
+  // Sheet fallback — map into the same shape so the renderer stays single-path.
+  return { source: 'sheet', generatedAt: null,
+           rows: (REVIVAL ? REVIVAL.sellers : []).filter(s => gcs.includes(s.crm_gc)).map(s => ({
+             seller_id: s.seller_id, seller_name: s.seller_name, crm_gc: s.crm_gc,
+             today_spend: s.today_spend, yesterday_spend: s.yesterday_spend,
+             spend_7d: s.spend_7d, month_spend: null,
+             moved_on: null, moved_days: null, moved_type: '',
+           })) };
+}
+
 function revRenderSpendingSellers() {
   const host = document.getElementById('sub-rev-spend');
-  if (!host || !REVIVAL) return;
-  const roster = revFilteredSellers();
+  if (!host) return;
+  const feed = revSpendRoster();
+  const roster = feed.rows;
+  if (!roster.length && !REVIVAL && feed.source === 'sheet') return;
   const conf = REV_SPEND_FILTERS[revSpendFilter] || REV_SPEND_FILTERS.active;
   let rows = roster.filter(conf.fn);
   const sid = (revSpendSellerId || "").trim();
@@ -7083,12 +7117,15 @@ function revRenderSpendingSellers() {
   // Sort by the chosen money column, largest first. Nulls sink to the bottom
   // rather than sorting as 0 so "unknown" never outranks a real zero.
   const sortKey = revSpendSort;
+  // Money columns sort biggest-first; "Newest in Revival" is fewest-days-first.
+  // Nulls always sink, so an unknown never outranks a real value either way.
+  const asc = sortKey === 'moved_days';
   rows = rows.slice().sort((a, b) => {
     const av = a[sortKey], bv = b[sortKey];
     if (av == null && bv == null) return 0;
     if (av == null) return 1;
     if (bv == null) return -1;
-    return bv - av;
+    return asc ? av - bv : bv - av;
   });
 
   const counts = {};
@@ -7096,6 +7133,7 @@ function revRenderSpendingSellers() {
 
   const sum = (arr, k) => arr.reduce((t, s) => t + (s[k] || 0), 0);
   const no7d = roster.filter(s => s.spend_7d == null).length;
+  const noMove = roster.filter(s => !s.moved_on).length;
 
   const cards = `
     <div class="sl-card overall"><div class="sl-label">Assigned to Revival</div><div class="sl-value">${fmtNum(roster.length)}</div>
@@ -7115,8 +7153,8 @@ function revRenderSpendingSellers() {
   // heading, so repeating it in every row is noise. The column count changes
   // with it, which is why the footer colspans below are computed, not hardcoded.
   const rowHTML = (s, showGc) => {
-    const d = s.days_since_spend;
-    const dCol = d == null ? '#cbd5e1' : (d <= 7 ? '#047857' : (d <= 30 ? '#b45309' : '#b91c1c'));
+    // Recently moved to Revival = worth a look; long-settled = cooler.
+    const mvCol = s.moved_days == null ? '#cbd5e1' : (s.moved_days <= 30 ? '#047857' : (s.moved_days <= 90 ? '#b45309' : '#64748b'));
     const sevenCol = (s.spend_7d || 0) > TS_ELIGIBLE_MIN ? '#047857' : '#475569';
     return `<tr>${sellerIdCell(s.seller_id)}
       <td>${s.seller_name ? escHtml(s.seller_name) : '<span class="empty-cell">—</span>'}</td>
@@ -7124,18 +7162,15 @@ function revRenderSpendingSellers() {
       <td class="num" style="font-weight:${(s.today_spend||0)>0?'600':'400'};">${fmtNum(s.today_spend)}</td>
       <td class="num" style="font-weight:${(s.yesterday_spend||0)>0?'600':'400'};">${fmtNum(s.yesterday_spend)}</td>
       <td class="num" style="font-weight:600;color:${sevenCol};">${fmtNum(s.spend_7d)}</td>
-      <td style="color:#475569;white-space:nowrap;">${fmtDDMMYY(s.last_spend_date) || escHtml(s.last_spend_date || '') || '<span class="empty-cell">—</span>'}</td>
-      <td class="num" style="color:${dCol};font-weight:600;">${d == null ? '—' : d}</td>
-      <td class="num">${fmtPNL(s.pnl_w20)}</td>
-      <td class="num">${fmtNum(s.spend_w20)}</td>
-      <td class="num">${fmtNum(s.spend_w19)}</td>
-      <td class="num">${fmtNum(s.spend_w18)}</td></tr>`;
+      <td class="num">${fmtNum(s.month_spend)}</td>
+      <td style="color:#475569;white-space:nowrap;">${s.moved_on ? fmtDDMMYY(s.moved_on) || escHtml(s.moved_on) : '<span class="empty-cell">—</span>'}</td>
+      <td class="num" style="color:${mvCol};font-weight:600;">${s.moved_days == null ? '—' : s.moved_days}</td>
+      <td style="color:#64748b;font-size:11px;">${s.moved_type ? escHtml(s.moved_type) : '<span class="empty-cell">—</span>'}</td></tr>`;
   };
   const tableHTML = (list, showGc, totalLabel) => `<div class="tbl-wrap"><table class="t"><thead><tr>
       <th>Seller ID</th><th>Seller Name</th>${showGc ? '<th>Revival GC</th>' : ''}
-      <th class="num">Today</th><th class="num">Yesterday</th><th class="num">Spend 7d</th>
-      <th>Last Spend</th><th class="num">Days Since</th>
-      <th class="num">PNL W-1</th><th class="num">Spend W-1</th><th class="num">Spend W-2</th><th class="num">Spend W-3</th>
+      <th class="num">Today</th><th class="num">Yesterday</th><th class="num">Spend 7d</th><th class="num">This Month</th>
+      <th>Moved to Revival</th><th class="num">Days in Revival</th><th>Route</th>
     </tr></thead><tbody>
     ${list.map(s => rowHTML(s, showGc)).join('')}
     </tbody>
@@ -7144,12 +7179,18 @@ function revRenderSpendingSellers() {
       <td class="num">${fmtNum(Math.round(sum(list,'today_spend')))}</td>
       <td class="num">${fmtNum(Math.round(sum(list,'yesterday_spend')))}</td>
       <td class="num">${fmtNum(Math.round(sum(list,'spend_7d')))}</td>
-      <td colspan="2"></td>
-      <td class="num"></td>
-      <td class="num">${fmtNum(Math.round(sum(list,'spend_w20')))}</td>
-      <td class="num">${fmtNum(Math.round(sum(list,'spend_w19')))}</td>
-      <td class="num">${fmtNum(Math.round(sum(list,'spend_w18')))}</td>
+      <td class="num">${fmtNum(Math.round(sum(list,'month_spend')))}</td>
+      <td colspan="3"></td>
     </tr></tfoot></table></div>`;
+
+  // Cap what we put in the DOM. The Metabase roster is 3,259 sellers, so an
+  // unfiltered "All assigned" view would build ~33k cells in one table — on a
+  // machine that was OOM-ing on this dashboard a month ago that is not worth
+  // risking for a list nobody reads past the top of. Filters and sort still run
+  // over the FULL set, so the cap never changes which sellers rank highest.
+  const REV_SPEND_ROW_CAP = 400;
+  const capped = rows.length > REV_SPEND_ROW_CAP;
+  const shownRows = capped ? rows.slice(0, REV_SPEND_ROW_CAP) : rows;
 
   let tbl;
   if (revSpendGroup === 'gc') {
@@ -7160,7 +7201,7 @@ function revRenderSpendingSellers() {
     // instead of silently vanishing from the bifurcated view.
     const gcOf = s => s.gc_display || s.crm_gc || '(no GC)';
     const byGc = {};
-    rows.forEach(s => { (byGc[gcOf(s)] = byGc[gcOf(s)] || []).push(s); });
+    shownRows.forEach(s => { (byGc[gcOf(s)] = byGc[gcOf(s)] || []).push(s); });
     const rosterByGc = {};
     roster.forEach(s => { (rosterByGc[gcOf(s)] = rosterByGc[gcOf(s)] || []).push(s); });
     const gcNames = Object.keys(byGc).sort((a, b) => sum(byGc[b],'spend_7d') - sum(byGc[a],'spend_7d'));
@@ -7204,7 +7245,7 @@ function revRenderSpendingSellers() {
       </div>
       ${tableHTML(byGc[g], false, `${escHtml(g)} subtotal — ${byGc[g].length} seller${byGc[g].length===1?'':'s'}`)}`).join('');
   } else {
-    tbl = tableHTML(rows, true, `Total — ${fmtNum(rows.length)} seller${rows.length===1?'':'s'} shown`);
+    tbl = tableHTML(shownRows, true, `Total — ${fmtNum(shownRows.length)} seller${shownRows.length===1?'':'s'} shown`);
   }
 
   host.innerHTML = `
@@ -7215,9 +7256,11 @@ function revRenderSpendingSellers() {
         ${revSpendGroup === 'gc'
           ? 'Bifurcated per Revival GC — the roll-up compares the GCs, then one block per GC lists its sellers. Switch to <b>Consolidated</b> to sort the whole base together.'
           : 'Every seller assigned to a Revival GC in one list, so the whole spending base sorts together. Switch to <b>GC-wise</b> to bifurcate.'}
-        Today / Yesterday / Last Spend come from the Hypercare Metrics sheet; <b>Spend 7d comes from card 10189</b>,
-        the same trailing-7-day figure Troubleshoot Compliance uses.
+        ${feed.source === 'mb'
+          ? `Sourced from <b>Metabase</b>, not the Google sheet — today/yesterday/this-month from card 2787 (summed across the seller's ad accounts), <b>Spend 7d from card 10189</b>, and <b>Moved to Revival from card 9353</b> (the revival-flow task date: when the account left the team and landed with a Revival GC).`
+          : `<b>Metabase feed unavailable — falling back to the Google sheet.</b> This Month and Moved to Revival will read “—”.`}
         ${no7d ? `${no7d} of ${roster.length} assigned sellers have no 10189 row, so their Spend 7d reads “—” (unknown, not zero) — they still appear if they spent today or yesterday.` : ''}
+        ${noMove ? `${noMove} have no card-9353 revival task, so their move date reads “—”; card 9353 only goes back to 20 Mar 2026.` : ''}
       </p>
       <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-bottom:10px;">
         <label style="font-size:12px;color:#475569;font-weight:600;">Show:</label>
@@ -7231,9 +7274,10 @@ function revRenderSpendingSellers() {
         <span style="font-size:12px;color:#475569;font-weight:600;margin-left:6px;">View:</span>
         ${modeBtn('gc','GC-wise')}${modeBtn('none','Consolidated')}
         <span style="font-size:12px;color:#475569;font-weight:600;margin-left:6px;">Sort by:</span>
-        ${sortBtn('spend_7d','Spend 7d')}${sortBtn('today_spend','Today')}${sortBtn('yesterday_spend','Yesterday')}${sortBtn('spend_w20','Spend W-1')}
+        ${sortBtn('spend_7d','Spend 7d')}${sortBtn('today_spend','Today')}${sortBtn('yesterday_spend','Yesterday')}${sortBtn('month_spend','This Month')}${sortBtn('moved_days','Newest in Revival')}
         <button type="button" class="refresh-btn" id="rev-spend-export" style="margin-left:auto;">⬇ Export CSV</button>
       </div>
+      ${capped ? `<div style="margin:0 0 10px;padding:8px 12px;border-radius:8px;background:rgba(99,102,241,0.08);border:1px solid rgba(99,102,241,0.3);color:#3730a3;font-size:12px;">Showing the top ${REV_SPEND_ROW_CAP} of ${fmtNum(rows.length)} matching sellers (sorted by ${escHtml(revSpendSort.replace(/_/g,' '))}). Narrow the filter, or use Export CSV for the full set — the export is never capped.</div>` : ''}
       ${rows.length ? tbl : `<div class="pending-card"><h4>No sellers match this filter</h4>
         <p style="color:var(--text-soft);font-size:12px;">${sid ? `Seller ID ${escHtml(sid)} isn't assigned to a Revival GC (or is filtered out by the GC chips above).` : 'Try a wider filter, or check the GC chips at the top.'}</p></div>`}
     </div>`;
@@ -7261,18 +7305,15 @@ function revRenderSpendingSellers() {
   const exp = document.getElementById('rev-spend-export');
   if (exp) exp.addEventListener('click', () => {
     const head = ["Seller ID","Seller Name","Revival GC","Today Spend","Yesterday Spend","Spend 7d",
-                  "Last Spend Date","Days Since Spend","PNL W-1","Spend W-1","Spend W-2","Spend W-3"];
+                  "This Month Spend","Moved to Revival","Days in Revival","Route"];
     const esc = v => `"${String(v == null ? '' : v).replace(/"/g,'""')}"`;
     const csv = [head.map(esc).join(',')].concat(rows.map(s => [
       s.seller_id, s.seller_name || '', s.gc_display || s.crm_gc || '',
       s.today_spend == null ? '' : s.today_spend,
       s.yesterday_spend == null ? '' : s.yesterday_spend,
       s.spend_7d == null ? '' : s.spend_7d,
-      s.last_spend_date || '', s.days_since_spend == null ? '' : s.days_since_spend,
-      s.pnl_w20 == null ? '' : s.pnl_w20,
-      s.spend_w20 == null ? '' : s.spend_w20,
-      s.spend_w19 == null ? '' : s.spend_w19,
-      s.spend_w18 == null ? '' : s.spend_w18,
+      s.month_spend == null ? '' : s.month_spend,
+      s.moved_on || '', s.moved_days == null ? '' : s.moved_days, s.moved_type || '',
     ].map(esc).join(','))).join('\n');
     _downloadCSV(csv, `revival-spending-sellers-${localISODate(new Date())}.csv`);
   });

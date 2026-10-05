@@ -184,13 +184,7 @@ def build_revival_spend(url, H):
     Writes the committed mb/revivalSpend.json. Best-effort: on quota/error it
     leaves any previous file untouched."""
     def pull(cid):
-        for attempt in range(4):
-            try:
-                return req(f"{url}/api/card/{cid}/query/json", 'POST', {}, H)
-            except Exception as e:
-                last = e
-                time.sleep(2 + attempt * 3)
-        raise last
+        return _cached_pull(url, H, cid)
     try:
         pre_rows = pull(9532)     # unassigned/revived dump — col 'spend' = pre-revival
         tot_rows = pull(10065)    # marketing overall — col 'total spend'
@@ -428,6 +422,27 @@ def build_assignment_history(map_rows, name_by=None):
     return out
 
 
+# ---- Card pull cache -------------------------------------------------------
+# BigQuery has a daily scan quota and card 7753 is ~65k rows, so a second pull in
+# the same run is pure waste. Builders that share a card go through this.
+_CARD_CACHE = {}
+
+
+def _cached_pull(url, H, cid):
+    if cid in _CARD_CACHE:
+        return _CARD_CACHE[cid]
+    last = None
+    for attempt in range(4):
+        try:
+            rows = req(f"{url}/api/card/{cid}/query/json", 'POST', {}, H)
+            _CARD_CACHE[cid] = rows
+            return rows
+        except Exception as e:
+            last = e
+            time.sleep(2 + attempt * 3)
+    raise last
+
+
 def build_marketing_sellers(url, H):
     """Marketing Seller View feed. Scope moved OFF the org-locked Google Inputs
     sheet onto Metabase so it stays live + handsfree:
@@ -581,6 +596,149 @@ def build_marketing_sellers(url, H):
         build_assignment_history(map_rows, {x['seller_id']: x['seller_name'] for x in sellers})
     except Exception as e:
         print(f"[assignmentHistory] FAILED: {e} (keeping previous file)")
+    return out
+
+
+
+# ---- Revival GC Spending Sellers -------------------------------------------
+# Feeds the Revival > Spending Sellers view. Sourced entirely from Metabase so it
+# no longer depends on the org-locked Hypercare Metrics sheet (which only the
+# signed-in browser can read, and which nobody can verify from outside).
+#
+#   universe        card 7753  growth_consultant_name in REV_GCS   (~3,257)
+#   today/yesterday card 2787  SUMMED per seller — a seller can hold several
+#                              ad accounts and 2787 emits one row per account,
+#                              so taking the first row would understate spend
+#   7-day spend     card 10189 (same figure Troubleshoot Compliance uses).
+#                              null, NOT 0, when the seller has no row there
+#   moved to Revival card 9353 the revival-flow task. date_created of the most
+#                              recent non-postponed hypercare task is the date
+#                              the account left the team and landed with a
+#                              Revival GC.
+#
+# Verified 2026-10-05 against source: 3,259 assigned, 49 spending today/yesterday,
+# 65 with any spend this month, 2,665 with a move date.
+# Excluding postponed titles loses nobody: "any 9353 row" and "non-postponed title"
+# both cover the same 2,665 sellers, i.e. a postponed follow-up always sits
+# alongside the original task rather than replacing it.
+REV_MOVE_EXCLUDE_TITLE = "postponed"
+
+
+def build_revival_gc_sellers(url, H, un_rows=None, ts_rows=None):
+    try:
+        map_rows = _cached_pull(url, H, 7753)
+        day_rows = _cached_pull(url, H, 2787)
+    except Exception as e:
+        print(f"[revivalGcSellers] FAILED: {e} (keeping previous file)")
+        return None
+    if un_rows is None:
+        try:
+            un_rows = _cached_pull(url, H, 9353)
+        except Exception as e:
+            print(f"[revivalGcSellers] 9353 pull failed ({e}); move dates omitted")
+            un_rows = []
+    if ts_rows is None:
+        try:
+            ts_rows = _cached_pull(url, H, 10189)
+        except Exception as e:
+            print(f"[revivalGcSellers] 10189 pull failed ({e}); spend_7d = null")
+            ts_rows = []
+
+    rev_set = {g.lower() for g in REV_GCS}
+
+    # today/yesterday/month SUMMED across the seller's ad accounts.
+    day = {}
+    for r in (day_rows or []):
+        sid = r.get('seller_id')
+        if not sid:
+            continue
+        d = day.setdefault(sid, {'t': 0.0, 'y': 0.0, 'm': 0.0})
+        d['t'] += float(r.get('today_spend') or 0)
+        d['y'] += float(r.get('yesterday_spend') or 0)
+        d['m'] += float(r.get('this_month_spend') or 0)
+
+    sevend, names = {}, {}
+    for r in (ts_rows or []):
+        sid = r.get('seller_id')
+        if not sid:
+            continue
+        # RAW card column is last_7_days__meta_spend. mb/troubleshoot.json calls it
+        # last_7d_spend because parsers.mjs renames it — do NOT use that name here,
+        # this builder reads the card directly. (Cost me a silent all-null join.)
+        v = r.get('last_7_days__meta_spend')
+        if v is not None:
+            sevend[sid] = round(float(v), 2)
+        if r.get('seller_name'):
+            names[sid] = r['seller_name']
+
+    # Most recent revival-flow task per seller = when it moved to Revival.
+    # Postponed rows are follow-ups on an existing case, not a fresh move, so
+    # they must not overwrite the real move date with a later one.
+    moved = {}
+    for r in (un_rows or []):
+        sid = r.get('seller_id')
+        # RAW card column is created_at (the parsed feed calls it date_created).
+        dt = str(r.get('created_at') or '')[:10]
+        if not sid or len(dt) != 10:
+            continue
+        if REV_MOVE_EXCLUDE_TITLE in str(r.get('title') or '').lower():
+            continue
+        cur = moved.get(sid)
+        if cur is None or dt > cur['date']:
+            moved[sid] = {'date': dt, 'decision': r.get('decision') or '',
+                          # unassignment_flow holds the ROUTE the seller took
+                          # (hypercare / churn / self_serve) — it is not a boolean.
+                          'request_type': r.get('unassignment_flow') or ''}
+
+    today = datetime.date.today()
+    sellers, per_gc = [], {}
+    for r in (map_rows or []):
+        gc = _gc_canon(r.get('growth_consultant_name'))
+        if str(gc).lower() not in rev_set:
+            continue
+        sid = r.get('seller_id')
+        if not sid:
+            continue
+        d = day.get(sid)
+        mv = moved.get(sid)
+        days_since = None
+        if mv:
+            try:
+                y, m, dd = (int(x) for x in mv['date'].split('-'))
+                days_since = (today - datetime.date(y, m, dd)).days
+            except Exception:
+                days_since = None
+        sellers.append({
+            'seller_id': sid,
+            'seller_name': names.get(sid, ''),
+            'crm_gc': gc,
+            # null (not 0) when the seller has no 2787 row at all — unknown,
+            # not "spent nothing". The UI renders null as a dash.
+            'today_spend': round(d['t'], 2) if d else None,
+            'yesterday_spend': round(d['y'], 2) if d else None,
+            'month_spend': round(d['m'], 2) if d else None,
+            'spend_7d': sevend.get(sid),
+            'moved_on': mv['date'] if mv else None,
+            'moved_days': days_since,
+            'moved_decision': mv['decision'] if mv else '',
+            'moved_type': mv['request_type'] if mv else '',
+        })
+        per_gc[gc] = per_gc.get(gc, 0) + 1
+
+    spending = sum(1 for s in sellers
+                   if (s['today_spend'] or 0) > 0 or (s['yesterday_spend'] or 0) > 0
+                   or (s['spend_7d'] or 0) > 0)
+    out = {'generatedAt': datetime.datetime.utcnow().strftime('%Y-%m-%dT%H:%M:%SZ'),
+           'total': len(sellers), 'perGC': per_gc, 'spending': spending,
+           'withMoveDate': sum(1 for s in sellers if s['moved_on']),
+           'with7d': sum(1 for s in sellers if s['spend_7d'] is not None),
+           'sellers': sellers}
+    path = os.path.join(REPO, "mb", "revivalGcSellers.json")
+    with open(path, "w") as f:
+        json.dump(out, f, separators=(',', ':'))
+    print(f"[revivalGcSellers] {len(sellers)} sellers across {len(per_gc)} GCs · "
+          f"{spending} spending · {out['withMoveDate']} with a move date · "
+          f"{out['with7d']} with a 7d figure -> {path}")
     return out
 
 
@@ -1170,6 +1328,8 @@ def main():
     total_bytes = 0
     failures = []
     dm_rows_for_analysis = None
+    un_rows_for_revival = None
+    ts_rows_for_revival = None
     for key, cid in CARDS.items():
         # /query/json → ALL rows as objects with RAW typed values (ISO dates,
         # raw numerics). The regular /query endpoint caps at 2000 rows; /query/json
@@ -1194,6 +1354,14 @@ def main():
         # the same card and BigQuery has a daily scan quota.
         if key == "dailyMetrics":
             dm_rows_for_analysis = rows_obj
+        # Hand these to build_revival_gc_sellers rather than pulling them again.
+        # NOTE: these are the REDUCED rows (reduce_rows above). unassignment and
+        # troubleshoot are both pass-through there, so nothing is lost — if that
+        # ever changes, pull them fresh instead.
+        if key == "unassignment":
+            un_rows_for_revival = rows_obj
+        if key == "troubleshoot":
+            ts_rows_for_revival = rows_obj
         cols = list(rows_obj[0].keys()) if rows_obj else []
         rows = [[r.get(c) for c in cols] for r in rows_obj]
         csv = rows_to_csv(cols, rows)
@@ -1219,6 +1387,15 @@ def main():
         build_marketing_sellers(url, H)
     except Exception as e:
         print(f"[marketingSellers] FAILED: {e}")
+    # Revival GC Spending Sellers feed (7753 + 2787 + 10189 + 9353 →
+    # mb/revivalGcSellers.json). Reuses the 7753/2787 pulls that
+    # build_marketing_sellers just cached, and the 9353/10189 rows from the loop.
+    try:
+        build_revival_gc_sellers(url, H, un_rows=un_rows_for_revival,
+                                 ts_rows=ts_rows_for_revival)
+    except Exception as e:
+        print(f"[revivalGcSellers] FAILED: {e}")
+
     # Hypercare Analysis feeds (12477 + 11911 + 2787 + 7669 + the 10773 rows
     # already pulled above → mb/analysisHistory.json + mb/revivedSellers.json)
     try:
