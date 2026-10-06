@@ -14,12 +14,27 @@ on:
     # users saw the amber "1 week behind" banner all morning. Off-peak minutes get
     # picked up far closer to schedule.
     - cron: "23 0 * * *"   # 05:53 IST — minutes after the Monday 00:00 UTC rollover
+    - cron: "37 3 * * *"
     - cron: "19 6 * * *"   # 11:49 IST
+    - cron: "47 9 * * *"
     - cron: "41 12 * * *"  # 18:11 IST
+    - cron: "29 16 * * *"
+    - cron: "33 20 * * *"
     # NOTE: Monday-only extra slots used to live here. They did not work — GitHub delays
     # EVERY slot on this repo by the same ~4-5h, so extra attempts all arrive late too.
     # The Monday rollover is now handled by refresh-monday.yml, which is scheduled early
     # on Sunday and waits until just after 00:00 UTC.
+    #
+    # The extra slots added 2026-10-06 are NOT a repeat of that mistake — they solve a
+    # different problem. That one was about hitting a specific INSTANT (the rollover),
+    # where more attempts do not help because the delay shifts them all equally. This is
+    # about a DROPPED run: on 2026-10-05 the 20:45 run sat 15 minutes without ever being
+    # assigned a runner and GitHub cancelled it with 0 steps executed (nothing to do with
+    # our code or the concurrency group — no other job was running). With only 3 slots a
+    # day, that single miss left the feed 14h stale and put the amber banner on every
+    # Marketing view overnight. Seven slots mean one dropped run costs ~4h instead of
+    # ~14h, i.e. it stays under MKT_FEED_STALE_H (12) in index.html. The job takes ~20s
+    # and the repo is public, so the extra runs cost no billable minutes.
   workflow_dispatch: {}
 
 # Share the full-refresh lock so the two jobs never race on push.
