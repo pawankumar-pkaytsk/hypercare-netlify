@@ -5248,6 +5248,15 @@ async function fetchSheets(opts) {
   // values), so this "parse" is really a filter+reshape — see processSpendLiveCSV.
   const spendLive = safeParse("Running Spend/Live", slRaw, processSpendLiveCSV,
     { rows: [], count: 0, dateRange: [null, null] });
+  // Distinguish "fetch failed" (no access / bad range) from "fetched but nothing
+  // matched" (layout changed). Without this the tab just said "no sheet data"
+  // for both, which says nothing about what to actually fix.
+  if (!slRaw) {
+    const e = LAST_FETCH_ERRORS.find(x => x.key === "spendLive");
+    spendLive.error = e ? e.error : "sheet returned no rows";
+  } else if (!spendLive.rows.length) {
+    spendLive.error = `fetched ${slRaw.length} rows but none matched the 4 Hypercare GCs — the Live-spending layout may have changed`;
+  }
   const creatives = safeParse("Creatives Tracker", crvRaw, processCreativesCSV,
     { rows: [], count: 0, pending: 0, completed: 0 });
   const creativesAbhinav = safeParse("Creatives Abhinav", crvAbhRaw, processCreativesCSV,
@@ -7629,19 +7638,58 @@ function _rmGc(name) {
   for (const [tok, gc] of RM_GC_TOKENS) if (n.includes(tok)) return gc;
   return null;
 }
+// fetchOne asks the Sheets API for UNFORMATTED_VALUE, so a cell displaying
+// "95.90%" arrives as the NUMBER 0.959, not the string. A cell that is plain
+// text still arrives as a string. Decide on type, not on content: a number is a
+// raw ratio and needs x100; a string is already in percent units.
+// (Parsing 0.959 as "0.96%" was why this view first rendered empty/garbage.)
 function _rmPct(v) {
   if (v == null || v === "") return null;
+  if (typeof v === "number") return isFinite(v) ? Math.round(v * 10000) / 100 : null;
   const n = parseFloat(String(v).replace(/[%,\s]/g, ""));
   return isFinite(n) ? n : null;
 }
+// Returns ISO (sorts lexically) from whatever the API hands back. All four forms
+// below have to be handled: the sheet DISPLAYS "5-Oct-2026", but under
+// UNFORMATTED_VALUE a real date cell comes back as a Google serial number, and
+// dateTimeRenderOption only applies to genuine date-typed cells — a column that
+// is part text, part date yields a mix. Returning null for an unrecognised shape
+// silently drops the row, which is exactly how this view first rendered empty,
+// so every plausible form is accepted rather than assuming one.
+const _RM_MONTHS = ["jan","feb","mar","apr","may","jun","jul","aug","sep","oct","nov","dec"];
+function _rmIso(y, m, d) {
+  return `${y}-${String(m).padStart(2, "0")}-${String(d).padStart(2, "0")}`;
+}
 function _rmDate(v) {
-  // Sheet writes "5-Oct-2026". Return ISO so it sorts lexically.
-  const m = String(v || "").trim().match(/^(\d{1,2})-([A-Za-z]{3})-(\d{4})$/);
-  if (!m) return null;
-  const mi = ["jan","feb","mar","apr","may","jun","jul","aug","sep","oct","nov","dec"]
-    .indexOf(m[2].toLowerCase());
-  if (mi < 0) return null;
-  return `${m[3]}-${String(mi + 1).padStart(2, "0")}-${String(m[1]).padStart(2, "0")}`;
+  if (v == null || v === "") return null;
+  // 1. Google serial number (days since 1899-12-30). Guard the range so a stray
+  //    count like 7737 can never be read as a date.
+  if (typeof v === "number") {
+    if (!isFinite(v) || v < 40000 || v > 60000) return null;   // ~2009 .. ~2064
+    const d = new Date(Date.UTC(1899, 11, 30) + Math.round(v) * 86400000);
+    return _rmIso(d.getUTCFullYear(), d.getUTCMonth() + 1, d.getUTCDate());
+  }
+  const t = String(v).trim();
+  // 2. "5-Oct-2026" / "5 Oct 2026"
+  let m = t.match(/^(\d{1,2})[-\s]([A-Za-z]{3})[A-Za-z]*[-\s](\d{4})$/);
+  if (m) {
+    const mi = _RM_MONTHS.indexOf(m[2].toLowerCase());
+    if (mi >= 0) return _rmIso(m[3], mi + 1, m[1]);
+    return null;
+  }
+  // 3. ISO, with or without a time part
+  m = t.match(/^(\d{4})-(\d{2})-(\d{2})/);
+  if (m) return _rmIso(m[1], +m[2], +m[3]);
+  // 4. D/M/YYYY or M/D/YYYY — ambiguous, so only accept it when one field is
+  //    unambiguously the day (>12); otherwise we would invent a date.
+  m = t.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
+  if (m) {
+    const a = +m[1], b = +m[2];
+    if (a > 12 && b <= 12) return _rmIso(m[3], b, a);
+    if (b > 12 && a <= 12) return _rmIso(m[3], a, b);
+    return null;
+  }
+  return null;
 }
 function processSpendLiveCSV(rows) {
   const out = [];
@@ -7763,7 +7811,7 @@ function renderRunningMetrics() {
         calc uses. Task adherence from <b>card 14081</b>: <b>Completed</b> = completed ÷ (completed + closed + pending);
         <b>within SLA</b> = of those completed, the ones with TAT ≤ SLA. Closed-without-completing counts against you;
         still-pending tasks have no TAT, which is why the SLA base is completed-only.
-        ${!sl ? '<b style="color:#b91c1c;">Spend/Live sheet not loaded — sign in or check sheet access.</b>' : ''}
+        ${(!sl || sl.error) ? `<b style="color:#b91c1c;">Spend/Live unavailable — ${escHtml(String((sl && sl.error) || 'sheet not loaded').slice(0, 220))}</b>` : ''}
         ${!ta ? '<b style="color:#b91c1c;">taskAdherence.json not loaded.</b>' : ''}
         <b>Today is a partial day</b> — tasks raised today are still pending, so today's completion % always reads low.
       </p>
