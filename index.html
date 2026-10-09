@@ -5255,7 +5255,7 @@ async function fetchSheets(opts) {
     const e = LAST_FETCH_ERRORS.find(x => x.key === "spendLive");
     spendLive.error = e ? e.error : "sheet returned no rows";
   } else if (!spendLive.rows.length) {
-    spendLive.error = `fetched ${slRaw.length} rows but none matched the 4 Hypercare GCs — the Live-spending layout may have changed`;
+    spendLive.error = `fetched ${fmtNum(String(slRaw).split("\n").length)} sheet rows but none matched the 4 Hypercare GCs — the Live-spending layout may have changed`;
   }
   const creatives = safeParse("Creatives Tracker", crvRaw, processCreativesCSV,
     { rows: [], count: 0, pending: 0, completed: 0 });
@@ -7646,8 +7646,15 @@ function _rmGc(name) {
 function _rmPct(v) {
   if (v == null || v === "") return null;
   if (typeof v === "number") return isFinite(v) ? Math.round(v * 10000) / 100 : null;
-  const n = parseFloat(String(v).replace(/[%,\s]/g, ""));
-  return isFinite(n) ? n : null;
+  const t = String(v).trim();
+  const n = parseFloat(t.replace(/[%,\s]/g, ""));
+  if (!isFinite(n)) return null;
+  // A '%' means the value is already in percent units (a FORMATTED read, or the
+  // sheet viewed by hand). No '%' means it came through UNFORMATTED_VALUE as a
+  // raw ratio — 0.959, not 95.90 — and the CSV round-trip stringified it, so the
+  // typeof check above can no longer catch it. Scale it here or every figure
+  // renders as "0.96%" instead of "95.9%": quietly wrong, not visibly missing.
+  return t.includes("%") ? n : Math.round(n * 10000) / 100;
 }
 // Returns ISO (sorts lexically) from whatever the API hands back. All four forms
 // below have to be handled: the sheet DISPLAYS "5-Oct-2026", but under
@@ -7670,6 +7677,9 @@ function _rmDate(v) {
     return _rmIso(d.getUTCFullYear(), d.getUTCMonth() + 1, d.getUTCDate());
   }
   const t = String(v).trim();
+  // 1b. A serial number stringified by the CSV round-trip ("46295"). Same range
+  //     guard as the numeric branch so a bare count can never become a date.
+  if (/^\d+(\.\d+)?$/.test(t)) return _rmDate(parseFloat(t));
   // 2. "5-Oct-2026" / "5 Oct 2026"
   let m = t.match(/^(\d{1,2})[-\s]([A-Za-z]{3})[A-Za-z]*[-\s](\d{4})$/);
   if (m) {
@@ -7691,7 +7701,13 @@ function _rmDate(v) {
   }
   return null;
 }
-function processSpendLiveCSV(rows) {
+function processSpendLiveCSV(text) {
+  // fetchOne returns CSV TEXT (it runs the API's values array through
+  // _valuesToCSV), NOT an array of rows. Iterating the string directly walks it
+  // one CHARACTER at a time and silently yields zero rows — which is exactly
+  // what happened here, and why the diagnostic reported 1,192,922 "rows".
+  // Everything therefore arrives as a STRING, even the numbers.
+  const rows = Array.isArray(text) ? text : parseCSV(text || "");
   const out = [];
   for (const r of (rows || [])) {
     if (!r || r.length < 9) continue;
