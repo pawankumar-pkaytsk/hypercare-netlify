@@ -2654,6 +2654,7 @@
     <button class="tab" data-team="CallHistory" title="Call History"><i class="ph ph-phone-call sd-navico"></i><span class="sd-navlbl">Call History</span><span class="count" id="cnt-CallHistory"></span></button>
     <button class="tab" data-team="HITSRecovery" title="HITS Recovery"><i class="ph ph-target sd-navico"></i><span class="sd-navlbl">HITS Recovery</span><span class="count" id="cnt-HITSRecovery"></span></button>
     <button class="tab" data-team="HypercareAnalysis" title="Hypercare Analysis"><i class="ph ph-chart-line-up sd-navico"></i><span class="sd-navlbl">Hypercare Analysis</span><span class="count" id="cnt-HypercareAnalysis"></span></button>
+    <button class="tab" data-team="RunningMetrics" title="Running Metrics — are we on track?"><i class="ph ph-gauge sd-navico"></i><span class="sd-navlbl">Running Metrics</span><span class="count" id="cnt-RunningMetrics"></span></button>
     <button class="tab" data-team="Creatives" title="Creatives Report"><i class="ph ph-palette sd-navico"></i><span class="sd-navlbl">Creatives Report</span><span class="count" id="cnt-Creatives"></span></button>
   </div>
 
@@ -2822,6 +2823,7 @@
 
   <div id="view-HITSRecovery" class="view"></div>
   <div id="view-HypercareAnalysis" class="view"></div>
+  <div id="view-RunningMetrics" class="view"></div>
   <div id="view-Creatives" class="view"></div>
 
   <p class="footer-note">
@@ -3055,6 +3057,9 @@ const SHEETS = {
   remainingFunds: { fileId: "1cicfFtSEOnvxF_X4PJYEHTUeX4oIHhXIHl_hFAKPoCk",  tab: "Funds" },
   callContext:    { fileId: "1VijN6V3V0VnuEBxu9X5smEReMflGnS5lj3aOIe9zwEA",  tab: "Dump" },
   dailyARR:       { fileId: "1ks3cDRGVklGlFs4cQbhgTFTVBe5rJNt_qzAnQUxhNDk",  tab: "arr" },
+  // Running Spend/Live — "Running Metrics for Incentives | Kickstarter", Live-spending tab.
+  // Range-scoped to A:I: columns J-V are pivot helpers full of #DIV/0! and junk.
+  spendLive:      { fileId: "1dMKIV7XjvrYLIIkAO49U9jePJ530LySUB1GgBVWGNRw",  tab: "Live-spending!A:I" },
   experimental:   { fileId: "1dWdoWmhEwH5uCsgTe62GSmy8VjcRZ7DAneN3fFg7xTo",  tab: "experimental" },
   revivalTrack:   { fileId: "1BFlI-jHjbfg8SQpS6iCNgL4oT8hbECUjvRXF060hHbo",  tab: "Revival Track + Unassignment" },
   mspRecovery:    { fileId: "1L1I5Dh3t_LLgmr__1nENpszAa7FwktSOTrMNySlrk48",  tab: "Mapping" },
@@ -4952,6 +4957,8 @@ let PRIORITY_CALLING = null;
 let MKT_SELLERS_MB = null;
 // Revival GC Spending Sellers feed (cards 7753 + 2787 + 10189 + 9353).
 let REV_GC_SELLERS = null;
+// Task Adherence feed (card 14081 → mb/taskAdherence.json), ~31 KB.
+let HC_TASK_ADH = null;
 // Hypercare Analysis feeds. HC_ANALYSIS is the APPEND-ONLY daily trend history
 // (mb/analysisHistory.json) — cards 2787/7669 keep no history and 10773 is a
 // rolling ~31-day window, so this file is the only durable record of past days.
@@ -5059,6 +5066,10 @@ async function loadAggregates(force) {
     const r = await fetch("mb/revivalGcSellers.json", { cache: "no-store" });
     if (r.ok) { REV_GC_SELLERS = await r.json(); window.REV_GC_SELLERS = REV_GC_SELLERS; }
   } catch (e) {}
+  try {
+    const r = await fetch("mb/taskAdherence.json", { cache: "no-store" });
+    if (r.ok) { HC_TASK_ADH = await r.json(); window.HC_TASK_ADH = HC_TASK_ADH; }
+  } catch (e) {}
   return HC_AGG;
 }
 
@@ -5083,7 +5094,7 @@ async function fetchSheets(opts) {
   // neither do the two deferred sources: callContext (on-demand, see
   // ensureCallContext) and dailyARR when Scaling is delisted (never ticks).
   const _DEFERRED_SHEETS = 1 + (SHOW_SCALING ? 0 : 1);   // callContext [+ dailyARR]
-  const _SHEET_COUNT = 22 - Object.keys(HC_AGG).length - _DEFERRED_SHEETS;
+  const _SHEET_COUNT = 23 - Object.keys(HC_AGG).length - _DEFERRED_SHEETS;
   // Suppress the full-screen boot loader for BACKGROUND refreshes — only show
   // it on the very first fetch when there's no cached data on screen. This
   // makes re-opening the dashboard or tab-switching feel instant.
@@ -5130,7 +5141,7 @@ async function fetchSheets(opts) {
   const [
     h, c, rRaw, tRaw, tsRaw, crRaw, uRaw, rfRaw,
     ccRaw, arrRaw, exRaw, rtRaw, msRaw,
-    hbmRaw, hmRaw, haRaw, haiRaw, gcRaw, dmRaw, crvRaw, crvAbhRaw, crvTeamRaw,
+    hbmRaw, hmRaw, haRaw, haiRaw, gcRaw, dmRaw, slRaw, crvRaw, crvAbhRaw, crvTeamRaw,
   ] = await Promise.all([
     tryFetch("hypercare",            "Hypercare Metrics"),
     fetchOrAgg("calling",            "Calling sheet"),
@@ -5157,6 +5168,7 @@ async function fetchSheets(opts) {
     tryFetch("hitsAprilInactiveCohort","HITS April Inactive Cohort sheet"),
     fetchOrAgg("gcv3Dump",           "GCV3 Dump sheet"),
     fetchOrAgg("dailyMetrics",       "Daily Metrics sheet"),
+    tryFetch("spendLive",            "Running Spend/Live sheet"),
     crvFetch("creatives",        "Creatives · Srabanika"),
     crvFetch("creativesAbhinav", "Creatives · Abhinav"),
     crvFetch("creativesTeam",    "Creatives · Aditya + Campaign"),
@@ -5232,6 +5244,10 @@ async function fetchSheets(opts) {
     { bySeller: {}, count: 0 });
   const dailyMetrics = HC_AGG.dailyMetrics || safeParse("Daily Metrics", dmRaw, processDailyMetricsCSV,
     { bySeller: {}, count: 0 });
+  // slRaw is already a row array from the Sheets API (fetchOne returns parsed
+  // values), so this "parse" is really a filter+reshape — see processSpendLiveCSV.
+  const spendLive = safeParse("Running Spend/Live", slRaw, processSpendLiveCSV,
+    { rows: [], count: 0, dateRange: [null, null] });
   const creatives = safeParse("Creatives Tracker", crvRaw, processCreativesCSV,
     { rows: [], count: 0, pending: 0, completed: 0 });
   const creativesAbhinav = safeParse("Creatives Abhinav", crvAbhRaw, processCreativesCSV,
@@ -5287,6 +5303,7 @@ async function fetchSheets(opts) {
   data.hitsAprilInactiveCohort = hitsAprilInactiveCohort;
   data.gcv3Dump = gcv3Dump;
   data.dailyMetrics = dailyMetrics;
+  data.spendLive = spendLive;
   data.creatives = creatives;
   data.creativesAbhinav = creativesAbhinav;
   data.creativesTeam = creativesTeam;
@@ -7582,6 +7599,234 @@ function revRenderAll() {
   document.getElementById('cnt-Revival').textContent = REV_GCS.length;
   revRenderSellerView(); revRenderCallView(); revRenderTaskView(); revRenderEfficiencyView(); renderPriorityCalling();
   revRenderSpendingSellers();
+}
+
+// ============================================================
+//        Running Metrics (added 2026-10-09)
+// ============================================================
+// "Are we on track?" for the four Hypercare GCs, from two sources:
+//   Spend/Live     — the "Running Metrics for Incentives | Kickstarter" sheet,
+//                    Live-spending tab (the incentive source of truth)
+//   Task adherence — card 14081 via mb/taskAdherence.json
+//
+// The sheet is NOT a flat table. Each date is a block: a banner row, a "Total
+// Numbers" row, a repeated column-header row, then one row per GC — and the
+// Hypercare GCs sit in their OWN sub-block near the end of each date, under GM
+// "Aaruni Vaidya", after the rest of the org. So this parser cannot assume a
+// fixed layout; it keys off the GC name in column B and ignores everything else.
+// A Revival sub-block follows ours with only "Total Assigned" filled, which is
+// why rows with no Live value are dropped rather than read as zero.
+const RM_GC_TOKENS = [
+  ["nikita",   "Nikita S GC"],
+  ["tanaya",   "Tanaya Gore"],
+  ["sargun",   "Sargunpreet Singh"],
+  ["sandipan", "Sandipan Sarkar"],
+];
+// Token match, not equality: this sheet writes 'SANDIPAN SARKAR', 'Tanaya  Gore'
+// and 'Sargunpreet  Singh' (caps / double spaces), same as cards 7753 and 14081.
+function _rmGc(name) {
+  const n = String(name || "").toLowerCase();
+  for (const [tok, gc] of RM_GC_TOKENS) if (n.includes(tok)) return gc;
+  return null;
+}
+function _rmPct(v) {
+  if (v == null || v === "") return null;
+  const n = parseFloat(String(v).replace(/[%,\s]/g, ""));
+  return isFinite(n) ? n : null;
+}
+function _rmDate(v) {
+  // Sheet writes "5-Oct-2026". Return ISO so it sorts lexically.
+  const m = String(v || "").trim().match(/^(\d{1,2})-([A-Za-z]{3})-(\d{4})$/);
+  if (!m) return null;
+  const mi = ["jan","feb","mar","apr","may","jun","jul","aug","sep","oct","nov","dec"]
+    .indexOf(m[2].toLowerCase());
+  if (mi < 0) return null;
+  return `${m[3]}-${String(mi + 1).padStart(2, "0")}-${String(m[1]).padStart(2, "0")}`;
+}
+function processSpendLiveCSV(rows) {
+  const out = [];
+  for (const r of (rows || [])) {
+    if (!r || r.length < 9) continue;
+    const gc = _rmGc(r[1]);
+    if (!gc) continue;
+    const date = _rmDate(r[0]);
+    if (!date) continue;
+    const live = num(r[5]);
+    // The Revival sub-block repeats under the same GM with only column D filled.
+    // No Live value means this is not a real Spend/Live row.
+    if (live == null) continue;
+    out.push({
+      date, gc,
+      total_assigned: num(r[3]),
+      net_assigned:   num(r[4]),
+      live,
+      live_pct:       _rmPct(r[6]),
+      spent_yesterday: num(r[7]),
+      spend_live_pct: _rmPct(r[8]),
+    });
+  }
+  // Keep the LAST row per (date, gc): the sheet occasionally repeats a GC within
+  // a date block and the later row is the corrected one.
+  const seen = new Map();
+  for (const r of out) seen.set(r.date + "|" + r.gc, r);
+  const rowsOut = [...seen.values()].sort((a, b) => a.date < b.date ? 1 : a.date > b.date ? -1 : 0);
+  const dates = [...new Set(rowsOut.map(r => r.date))].sort();
+  return { rows: rowsOut, count: rowsOut.length,
+           dateRange: dates.length ? [dates[0], dates[dates.length - 1]] : [null, null] };
+}
+
+let rmWindow = 14;          // trailing days shown
+let rmMetric = "spend_live_pct";
+
+function renderRunningMetrics() {
+  const host = document.getElementById('view-RunningMetrics');
+  if (!host) return;
+  const sl = (typeof CACHED_PAYLOAD !== 'undefined' && CACHED_PAYLOAD && CACHED_PAYLOAD.spendLive) || null;
+  const ta = (typeof HC_TASK_ADH !== 'undefined') ? HC_TASK_ADH : null;
+  const GCS = RM_GC_TOKENS.map(x => x[1]);
+
+  // ---- Spend/Live: trailing window ----
+  const slRows = (sl && sl.rows) || [];
+  const allDates = [...new Set(slRows.map(r => r.date))].sort().reverse();
+  const winDates = allDates.slice(0, rmWindow);
+  const inWin = slRows.filter(r => winDates.includes(r.date));
+  const latestDate = allDates[0] || null;
+  const latest = {}; inWin.forEach(r => { if (r.date === latestDate) latest[r.gc] = r; });
+
+  const avg = (arr, k) => {
+    const v = arr.map(x => x[k]).filter(x => x != null);
+    return v.length ? Math.round(v.reduce((a, b) => a + b, 0) / v.length * 100) / 100 : null;
+  };
+  const sumK = (arr, k) => arr.reduce((t, x) => t + (x[k] || 0), 0);
+
+  // ---- Task adherence: same trailing window ----
+  const taDays = (ta && ta.days) || [];
+  const taWin = taDays.filter(d => winDates.length === 0 || d.date >= (winDates[winDates.length - 1] || ''));
+  const taBy = {};
+  taWin.forEach(d => {
+    const b = taBy[d.gc] || (taBy[d.gc] = { total: 0, completed: 0, closed: 0, pending: 0, in_sla: 0 });
+    b.total += d.total; b.completed += d.completed; b.closed += d.closed;
+    b.pending += d.pending; b.in_sla += d.in_sla;
+  });
+  const pct = (n, d) => d ? Math.round(n / d * 1000) / 10 : null;
+
+  const teamLive = avg(Object.values(latest), 'live_pct');
+  const teamSL   = avg(Object.values(latest), 'spend_live_pct');
+  const taAll = Object.values(taBy).reduce((a, b) => ({
+    total: a.total + b.total, completed: a.completed + b.completed,
+    in_sla: a.in_sla + b.in_sla }), { total: 0, completed: 0, in_sla: 0 });
+
+  const tone = (v, good, ok) => v == null ? '#94a3b8' : (v >= good ? '#047857' : v >= ok ? '#b45309' : '#b91c1c');
+  const card = (label, val, sub, col) => `<div class="sl-card"><div class="sl-label">${label}</div>
+      <div class="sl-value" style="color:${col || 'inherit'};">${val}</div><div class="sl-sub">${sub}</div></div>`;
+
+  const cards = `
+    <div class="sl-card overall"><div class="sl-label">Team — Live / Assigned</div>
+      <div class="sl-value">${teamLive == null ? '—' : teamLive + '%'}</div>
+      <div class="sl-sub">${latestDate ? 'as of ' + (fmtDDMMYY(latestDate) || latestDate) : 'no sheet data'}</div></div>
+    ${card('Team — Spend / Live', teamSL == null ? '—' : teamSL + '%', latestDate ? 'latest day' : '—', tone(teamSL, 50, 35))}
+    ${card('Tasks Completed', pct(taAll.completed, taAll.total) == null ? '—' : pct(taAll.completed, taAll.total) + '%',
+           `${fmtNum(taAll.completed)} of ${fmtNum(taAll.total)} · last ${rmWindow}d`, tone(pct(taAll.completed, taAll.total), 85, 70))}
+    ${card('Completed within SLA', pct(taAll.in_sla, taAll.completed) == null ? '—' : pct(taAll.in_sla, taAll.completed) + '%',
+           `${fmtNum(taAll.in_sla)} of ${fmtNum(taAll.completed)} completed`, tone(pct(taAll.in_sla, taAll.completed), 85, 70))}`;
+
+  // ---- per-GC table ----
+  const gcRows = GCS.map(gc => {
+    const l = latest[gc] || {};
+    const w = inWin.filter(r => r.gc === gc);
+    const t = taBy[gc] || { total: 0, completed: 0, in_sla: 0, pending: 0 };
+    const cp = pct(t.completed, t.total), sp = pct(t.in_sla, t.completed);
+    return `<tr>
+      <td class="gc">${escHtml(gc)}</td>
+      <td class="num">${fmtNum(l.total_assigned)}</td>
+      <td class="num">${fmtNum(l.net_assigned)}</td>
+      <td class="num">${fmtNum(l.live)}</td>
+      <td class="num" style="font-weight:600;color:${tone(l.live_pct, 90, 75)};">${l.live_pct == null ? '—' : l.live_pct + '%'}</td>
+      <td class="num">${fmtNum(l.spent_yesterday)}</td>
+      <td class="num" style="font-weight:700;color:${tone(l.spend_live_pct, 50, 35)};">${l.spend_live_pct == null ? '—' : l.spend_live_pct + '%'}</td>
+      <td class="num" style="color:#64748b;">${avg(w, 'spend_live_pct') == null ? '—' : avg(w, 'spend_live_pct') + '%'}</td>
+      <td class="num">${fmtNum(t.total)}</td>
+      <td class="num" style="font-weight:600;color:${tone(cp, 85, 70)};">${cp == null ? '—' : cp + '%'}</td>
+      <td class="num" style="font-weight:600;color:${tone(sp, 85, 70)};">${sp == null ? '—' : sp + '%'}</td>
+      <td class="num" style="color:${(t.pending || 0) > 0 ? '#b45309' : '#94a3b8'};">${fmtNum(t.pending)}</td>
+    </tr>`;
+  }).join('');
+
+  const winBtn = n => `<button type="button" class="subtab${rmWindow===n?' active':''}" data-rm-win="${n}">${n}d</button>`;
+  const metBtn = (k, l) => `<button type="button" class="subtab${rmMetric===k?' active':''}" data-rm-metric="${k}">${l}</button>`;
+
+  host.innerHTML = `
+    <div class="card">
+      <h3>Running Metrics — Hypercare Team <span class="src-tag">LIVE</span></h3>
+      <p style="color:#64748b;font-size:11px;margin:0 0 10px;line-height:1.6;">
+        Spend/Live from the <b>Running Metrics for Incentives</b> sheet (Live-spending tab) — the same numbers the incentive
+        calc uses. Task adherence from <b>card 14081</b>: <b>Completed</b> = completed ÷ (completed + closed + pending);
+        <b>within SLA</b> = of those completed, the ones with TAT ≤ SLA. Closed-without-completing counts against you;
+        still-pending tasks have no TAT, which is why the SLA base is completed-only.
+        ${!sl ? '<b style="color:#b91c1c;">Spend/Live sheet not loaded — sign in or check sheet access.</b>' : ''}
+        ${!ta ? '<b style="color:#b91c1c;">taskAdherence.json not loaded.</b>' : ''}
+        <b>Today is a partial day</b> — tasks raised today are still pending, so today's completion % always reads low.
+      </p>
+      <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:10px;">
+        <span style="font-size:12px;color:#475569;font-weight:600;">Window:</span>${winBtn(7)}${winBtn(14)}${winBtn(30)}
+        <span style="font-size:12px;color:#475569;font-weight:600;margin-left:8px;">Chart:</span>${metBtn('spend_live_pct','Spend / Live')}${metBtn('live_pct','Live / Assigned')}
+        <button type="button" class="refresh-btn" id="rm-export" style="margin-left:auto;">⬇ Export CSV</button>
+      </div>
+      <div class="sl-grid">${cards}</div>
+      <div class="tbl-wrap" style="margin-top:12px;"><table class="t"><thead><tr>
+        <th>GC</th><th class="num">Assigned</th><th class="num">Net</th><th class="num">Live</th><th class="num">Live / Assigned</th>
+        <th class="num">Spent Yest.</th><th class="num">Spend / Live</th><th class="num">Avg S/L ${rmWindow}d</th>
+        <th class="num">Tasks ${rmWindow}d</th><th class="num">Completed</th><th class="num">In SLA</th><th class="num">Pending</th>
+      </tr></thead><tbody>${gcRows}</tbody></table></div>
+      <div style="margin-top:16px;"><canvas id="rm-chart" height="90"></canvas></div>
+      <p style="color:#94a3b8;font-size:11px;margin-top:8px;">
+        Sheet covers ${sl && sl.dateRange ? (sl.dateRange[0] || '?') + ' → ' + (sl.dateRange[1] || '?') : '—'} ·
+        ${fmtNum(slRows.length)} GC-days for this team.
+        Task card covers ${ta && ta.dateRange ? (ta.dateRange[0] || '?') + ' → ' + (ta.dateRange[1] || '?') : '—'}.
+      </p>
+    </div>`;
+
+  // ---- trend chart ----
+  try {
+    const ctx = document.getElementById('rm-chart');
+    if (ctx && window.Chart && winDates.length) {
+      if (window._rmChart) window._rmChart.destroy();
+      const labels = [...winDates].sort();
+      const palette = ['#6366f1', '#10b981', '#f59e0b', '#ec4899'];
+      window._rmChart = new Chart(ctx, {
+        type: 'line',
+        data: { labels: labels.map(d => fmtDDMMYY(d) || d),
+          datasets: GCS.map((gc, i) => ({
+            label: gc,
+            data: labels.map(d => {
+              const r = inWin.find(x => x.date === d && x.gc === gc);
+              return r ? r[rmMetric] : null;
+            }),
+            borderColor: palette[i], backgroundColor: palette[i] + '22',
+            tension: 0.3, spanGaps: true, pointRadius: 2,
+          })) },
+        options: { responsive: true, maintainAspectRatio: true,
+          plugins: { legend: { position: 'bottom' },
+            title: { display: true, text: rmMetric === 'spend_live_pct' ? 'Spend / Live (%)' : 'Live / Assigned (%)' } },
+          scales: { y: { beginAtZero: true, ticks: { callback: v => v + '%' } } } },
+      });
+    }
+  } catch (e) { console.warn('[runningMetrics] chart failed:', e.message); }
+
+  document.querySelectorAll('[data-rm-win]').forEach(b =>
+    b.addEventListener('click', () => { rmWindow = +b.dataset.rmWin; renderRunningMetrics(); }));
+  document.querySelectorAll('[data-rm-metric]').forEach(b =>
+    b.addEventListener('click', () => { rmMetric = b.dataset.rmMetric; renderRunningMetrics(); }));
+  const ex = document.getElementById('rm-export');
+  if (ex) ex.addEventListener('click', () => {
+    const head = ["Date","GC","Total Assigned","Net Assigned","Live","Live/Assigned %","Spent Yesterday","Spend/Live %"];
+    const esc = v => `"${String(v == null ? '' : v).replace(/"/g, '""')}"`;
+    const csv = [head.map(esc).join(',')].concat(inWin
+      .slice().sort((a, b) => (a.date < b.date ? 1 : -1))
+      .map(r => [r.date, r.gc, r.total_assigned, r.net_assigned, r.live, r.live_pct, r.spent_yesterday, r.spend_live_pct].map(esc).join(','))
+    ).join('\n');
+    _downloadCSV(csv, `running-metrics-${localISODate(new Date())}.csv`);
+  });
 }
 
 // ============================================================
@@ -12376,7 +12621,7 @@ function activateTeam(team) {
   // Delisted workspaces fall back to Home rather than opening an empty view.
   if (team === "Scaling" && !SHOW_SCALING) team = "Home";
   document.querySelectorAll(".tabs .tab").forEach(b => b.classList.remove("active"));
-  document.querySelectorAll("#view-Home, #view-Scaling, #view-Marketing, #view-Unassignment, #view-Revival, #view-Daily, #view-CallHistory, #view-HITSRecovery, #view-HypercareAnalysis, #view-Creatives").forEach(v => v.classList.remove("active"));
+  document.querySelectorAll("#view-Home, #view-Scaling, #view-Marketing, #view-Unassignment, #view-Revival, #view-Daily, #view-CallHistory, #view-HITSRecovery, #view-HypercareAnalysis, #view-RunningMetrics, #view-Creatives").forEach(v => v.classList.remove("active"));
   const tabBtn = document.querySelector(`.tabs .tab[data-team="${team}"]`);
   if (tabBtn) tabBtn.classList.add("active");
   const view = document.getElementById(`view-${team}`);
@@ -12389,6 +12634,7 @@ function activateTeam(team) {
   if (team === "CallHistory") renderCallHistory();
   if (team === "HITSRecovery") renderHITSRecovery();
   if (team === "HypercareAnalysis") renderHypercareAnalysis();
+  if (team === "RunningMetrics") renderRunningMetrics();
   if (team === "Creatives") renderCreativesTracker();
 }
 // Strip delisted workspaces out of the DOM so they cannot be clicked or tabbed to.

@@ -742,6 +742,97 @@ def build_revival_gc_sellers(url, H, un_rows=None, ts_rows=None):
     return out
 
 
+
+# ---- Task Adherence (card 14081) -------------------------------------------
+# Feeds the Running Metrics tab. Card 14081 is ~194k task rows across the whole
+# org; we keep only the four Hypercare GCs and aggregate to per-GC-per-day
+# counts, so the committed file is a few KB rather than tens of MB.
+#
+# Two metrics, both as the owner defined them:
+#   Task completed   = completed / (completed + closed + pending)
+#   Completed in SLA = of the COMPLETED ones, those with tat <= sla_in_min
+# `closed` means closed without completing, and carries a tat, so it must not be
+# counted as completed. `pending` is still open and has no tat at all, which is
+# why the SLA base is completed-only rather than all tasks.
+TASK_ADHERENCE_CARD = 14081
+TASK_ADHERENCE_DAYS = 120
+
+
+def _ta_gc(name):
+    """Map an assignee_name to a Hypercare GC, or None.
+
+    Token matching, NOT equality: card 14081 emits 'SANDIPAN SARKAR' in caps and
+    'Sargunpreet  Singh' with a double space, the same inconsistency that once
+    silently mapped all of Sandipan's sellers to nobody (see _gc_canon).
+    """
+    n = str(name or "").lower()
+    for token, gc in (("nikita", "Nikita S GC"), ("tanaya", "Tanaya Gore"),
+                      ("sargun", "Sargunpreet Singh"), ("sandipan", "Sandipan Sarkar")):
+        if token in n:
+            return gc
+    return None
+
+
+def build_task_adherence(url, H, rows=None):
+    if rows is None:
+        try:
+            rows = _cached_pull(url, H, TASK_ADHERENCE_CARD)
+        except Exception as e:
+            print(f"[taskAdherence] FAILED: {e} (keeping previous file)")
+            return None
+    cut = _cutoff(TASK_ADHERENCE_DAYS)
+    daily, by_gc, by_sub = {}, {}, {}
+    for r in (rows or []):
+        gc = _ta_gc(r.get('assignee_name'))
+        if not gc:
+            continue
+        d = str(r.get('task_created_at') or '')[:10]
+        if len(d) != 10 or d < cut:
+            continue
+        st = str(r.get('status') or '').lower()
+        sla, tat = r.get('sla_in_min'), r.get('tat')
+        in_sla = (st == 'completed' and tat is not None and sla and tat <= sla)
+        for bucket, key in ((daily, (d, gc)), (by_gc, gc), (by_sub, (gc, r.get('sub_type') or ''))):
+            b = bucket.setdefault(key, {'total': 0, 'completed': 0, 'closed': 0,
+                                        'pending': 0, 'in_sla': 0})
+            b['total'] += 1
+            if st in ('completed', 'closed', 'pending'):
+                b[st] += 1
+            if in_sla:
+                b['in_sla'] += 1
+
+    def pct(n, d):
+        return round(n / d * 100, 2) if d else None
+
+    days = [{'date': d, 'gc': gc, **v,
+             'completed_pct': pct(v['completed'], v['total']),
+             'sla_pct': pct(v['in_sla'], v['completed'])}
+            for (d, gc), v in sorted(daily.items())]
+    totals = {gc: {**v, 'completed_pct': pct(v['completed'], v['total']),
+                   'sla_pct': pct(v['in_sla'], v['completed'])}
+              for gc, v in by_gc.items()}
+    subs = {}
+    for (gc, sub), v in by_sub.items():
+        subs.setdefault(gc, []).append({'sub_type': sub, **v,
+                                        'completed_pct': pct(v['completed'], v['total']),
+                                        'sla_pct': pct(v['in_sla'], v['completed'])})
+    for gc in subs:
+        subs[gc].sort(key=lambda x: -x['total'])
+        subs[gc] = subs[gc][:15]
+
+    dates = sorted({d['date'] for d in days})
+    out = {'generatedAt': datetime.datetime.utcnow().strftime('%Y-%m-%dT%H:%M:%SZ'),
+           'card': TASK_ADHERENCE_CARD,
+           'dateRange': [dates[0], dates[-1]] if dates else [None, None],
+           'days': days, 'totals': totals, 'bySubType': subs}
+    path = os.path.join(REPO, "mb", "taskAdherence.json")
+    with open(path, "w") as f:
+        json.dump(out, f, separators=(',', ':'))
+    print(f"[taskAdherence] {len(days)} GC-days over {out['dateRange'][0]}..{out['dateRange'][1]} "
+          f"for {len(totals)} GCs -> {path}")
+    return out
+
+
 # ---- Priority Calling: rank unassigned sellers for revival outreach ----
 PRIORITY_SPEND_MIN = 2000   # a week "counts" for PNL tiers when marketing spend > this
 
@@ -1387,6 +1478,12 @@ def main():
         build_marketing_sellers(url, H)
     except Exception as e:
         print(f"[marketingSellers] FAILED: {e}")
+    # Task Adherence feed (card 14081 → mb/taskAdherence.json)
+    try:
+        build_task_adherence(url, H)
+    except Exception as e:
+        print(f"[taskAdherence] FAILED: {e}")
+
     # Revival GC Spending Sellers feed (7753 + 2787 + 10189 + 9353 →
     # mb/revivalGcSellers.json). Reuses the 7753/2787 pulls that
     # build_marketing_sellers just cached, and the 9353/10189 rows from the loop.
