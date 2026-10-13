@@ -3094,7 +3094,7 @@ const SHEETS_FAILED_PLACEHOLDER = /^FILL_IN_/;
 // Bumped on every push so the UI can show which build the user is actually
 // running. If this string doesn't match the latest deploy, the browser is
 // serving a cached/older version.
-const BUILD_VERSION = "2026-10-13 · Seller View: Spending Now (today or yesterday) alongside Spend/Live";
+const BUILD_VERSION = "2026-10-13 · Seller View: one All Marketing tile carrying both counts";
 // Optional convenience: persist file IDs to localStorage so you don't have to
 // edit the file every redeploy. If a value is set in localStorage it takes
 // precedence over the hard-coded one above. See window.hcSetSheetId() helper.
@@ -5547,8 +5547,10 @@ function renderSpendLiveCards() {
   let cards = "";
   if (allSelected) {
     const o = DATA.overall;
-    cards += `<div class="sl-card overall"><div class="sl-label">All Marketing — Spend/Live</div><div class="sl-value">${o.spend_live_pct}<span class="pct">%</span></div><div class="sl-sub">${o.live_yesterday_count} live yesterday / ${o.total_assigned} assigned</div><div class="sl-bar"><span style="width:${Math.min(o.spend_live_pct,100)}%"></span></div></div>`;
-    cards += `<div class="sl-card" style="border-color:rgba(16,185,129,0.45);"><div class="sl-label">All Marketing — Spending Now</div><div class="sl-value" style="color:#059669;">${o.spending_now_count}</div><div class="sl-sub">${o.spending_today_count} spent today · ${o.spending_now_pct}% of ${o.total_assigned} · <span style="color:#94a3b8;">${escHtml(mktFeedAgeLabel())}</span></div><div class="sl-bar"><span style="width:${Math.min(o.spending_now_pct,100)}%;background:#059669;"></span></div></div>`;
+    // ONE overall tile carrying both numbers, mirroring the per-GC tiles below — a second
+    // "All Marketing — …" tile repeated the scope in every label and wrapped them onto two
+    // lines. Scope is stated once here and the GC tiles inherit the same layout.
+    cards += `<div class="sl-card overall"><div class="sl-label">All Marketing</div><div class="sl-value">${o.spend_live_pct}<span class="pct">%</span></div><div class="sl-sub">${o.live_yesterday_count} live yesterday / ${o.total_assigned} assigned<br><span style="color:#6ee7b7;font-weight:700;">${o.spending_now_count} spending now</span> <span style="color:rgba(255,255,255,0.72);">(${o.spending_today_count} today · ${escHtml(mktFeedAgeLabel())})</span></div><div class="sl-bar"><span style="width:${Math.min(o.spend_live_pct,100)}%"></span></div></div>`;
   }
   for (const gc of gcs) {
     const g = DATA.gc_summary[gc];
