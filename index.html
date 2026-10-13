@@ -3094,7 +3094,7 @@ const SHEETS_FAILED_PLACEHOLDER = /^FILL_IN_/;
 // Bumped on every push so the UI can show which build the user is actually
 // running. If this string doesn't match the latest deploy, the browser is
 // serving a cached/older version.
-const BUILD_VERSION = "2026-10-12 · Running Metrics live (Spend/Live + Task Adherence) · version resync";
+const BUILD_VERSION = "2026-10-13 · Seller View: Spending Now (today or yesterday) alongside Spend/Live";
 // Optional convenience: persist file IDs to localStorage so you don't have to
 // edit the file every redeploy. If a value is set in localStorage it takes
 // precedence over the hard-coded one above. See window.hcSetSheetId() helper.
@@ -4389,22 +4389,36 @@ function buildDashboardData(hyp, calls, revived, tasks, troubleshoot, chatReply,
   // comes from Metabase card 2787 (per-seller today/yesterday spend).
   const mktLive = s => (s.yesterday_spend || 0) > 1;
   const mktGcSummary = {};
+  // "Spending now" = spent TODAY or YESTERDAY, any amount. This is the operational
+  // "who is live right now" view and matches how the HITS tracker counts; Spend/Live
+  // below stays on `yesterday_spend > 1` because today_spend is a PARTIAL day that
+  // climbs until midnight, so it cannot be compared across days — and the 98-day
+  // Hypercare Analysis history is built on the yesterday rule. Keep both.
+  const mktSpendingNow = s => ((s.today_spend || 0) > 0 || (s.yesterday_spend || 0) > 0);
   for (const gc of MKT_GCS) {
     const gcRows = hyp.marketingSellers.filter(s => s.crm_gc === gc);
     const A = gcRows.filter(mktLive).length;
     const B = gcRows.length;
+    const N = gcRows.filter(mktSpendingNow).length;
     mktGcSummary[gc] = {
       display: DISPLAY[gc] || gc,
       total_assigned: B,
       live_yesterday_count: A,
+      spending_now_count: N,
+      spending_today_count: gcRows.filter(s => (s.today_spend || 0) > 0).length,
       spend_live_pct: B > 0 ? Math.round((A/B)*10000)/100 : 0,
+      spending_now_pct: B > 0 ? Math.round((N/B)*10000)/100 : 0,
     };
   }
   const mktA = hyp.marketingSellers.filter(mktLive).length;
   const mktB = hyp.marketingSellers.length;
+  const mktN = hyp.marketingSellers.filter(mktSpendingNow).length;
   const mktOverall = {
     total_assigned: mktB, live_yesterday_count: mktA,
+    spending_now_count: mktN,
+    spending_today_count: hyp.marketingSellers.filter(s => (s.today_spend || 0) > 0).length,
     spend_live_pct: mktB > 0 ? Math.round((mktA/mktB)*10000)/100 : 0,
+    spending_now_pct: mktB > 0 ? Math.round((mktN/mktB)*10000)/100 : 0,
   };
 
   const revGcSummary = {};
@@ -5501,6 +5515,20 @@ function mktFeedAgeBanner() {
     Re-run it with <code>gh workflow run refresh-marketing.yml -R pawankumar-pkaytsk/hypercare-netlify</code>.</span>
   </div>`;
 }
+// How fresh the snapshot actually is. The site is static GitHub Pages reading committed
+// JSON, so nothing here is live-queried — "spending now" is only as current as the last
+// refresh (7 slots/day). Always show the age next to a today-based number rather than
+// letting it look real-time.
+function mktFeedAgeLabel() {
+  const mb = (typeof MKT_SELLERS_MB !== "undefined") ? MKT_SELLERS_MB : null;
+  if (!mb || !mb.generatedAt) return "";
+  const t = Date.parse(mb.generatedAt);
+  if (!t) return "";
+  const mins = Math.max(0, Math.round((Date.now() - t) / 60000));
+  if (mins < 90) return `as of ${mins} min ago`;
+  const hrs = mins / 60;
+  return hrs < 48 ? `as of ${Math.round(hrs)}h ago` : `as of ${Math.round(hrs / 24)}d ago`;
+}
 function mktStaleBanner() {
   const st = mktWeekStale();
   if (!st) return "";
@@ -5520,10 +5548,11 @@ function renderSpendLiveCards() {
   if (allSelected) {
     const o = DATA.overall;
     cards += `<div class="sl-card overall"><div class="sl-label">All Marketing — Spend/Live</div><div class="sl-value">${o.spend_live_pct}<span class="pct">%</span></div><div class="sl-sub">${o.live_yesterday_count} live yesterday / ${o.total_assigned} assigned</div><div class="sl-bar"><span style="width:${Math.min(o.spend_live_pct,100)}%"></span></div></div>`;
+    cards += `<div class="sl-card" style="border-color:rgba(16,185,129,0.45);"><div class="sl-label">All Marketing — Spending Now</div><div class="sl-value" style="color:#059669;">${o.spending_now_count}</div><div class="sl-sub">${o.spending_today_count} spent today · ${o.spending_now_pct}% of ${o.total_assigned} · <span style="color:#94a3b8;">${escHtml(mktFeedAgeLabel())}</span></div><div class="sl-bar"><span style="width:${Math.min(o.spending_now_pct,100)}%;background:#059669;"></span></div></div>`;
   }
   for (const gc of gcs) {
     const g = DATA.gc_summary[gc];
-    cards += `<div class="sl-card"><div class="sl-label">${g.display}</div><div class="sl-value">${g.spend_live_pct}<span class="pct">%</span></div><div class="sl-sub">${g.live_yesterday_count} / ${g.total_assigned} sellers live</div><div class="sl-bar"><span style="width:${Math.min(g.spend_live_pct,100)}%"></span></div></div>`;
+    cards += `<div class="sl-card"><div class="sl-label">${g.display}</div><div class="sl-value">${g.spend_live_pct}<span class="pct">%</span></div><div class="sl-sub">${g.live_yesterday_count} / ${g.total_assigned} sellers live<br><span style="color:#059669;font-weight:700;">${g.spending_now_count} spending now</span> <span style="color:#94a3b8;">(${g.spending_today_count} today)</span></div><div class="sl-bar"><span style="width:${Math.min(g.spend_live_pct,100)}%"></span></div></div>`;
   }
   if (!cards) cards = `<div style="color:#94a3b8;font-size:12px;padding:6px 0;">No GCs selected.</div>`;
   return `<div class="sl-grid">${cards}</div>`;
