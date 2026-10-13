@@ -2655,6 +2655,7 @@
     <button class="tab" data-team="HITSRecovery" title="HITS Recovery"><i class="ph ph-target sd-navico"></i><span class="sd-navlbl">HITS Recovery</span><span class="count" id="cnt-HITSRecovery"></span></button>
     <button class="tab" data-team="HypercareAnalysis" title="Hypercare Analysis"><i class="ph ph-chart-line-up sd-navico"></i><span class="sd-navlbl">Hypercare Analysis</span><span class="count" id="cnt-HypercareAnalysis"></span></button>
     <button class="tab" data-team="RunningMetrics" title="Running Metrics — are we on track?"><i class="ph ph-gauge sd-navico"></i><span class="sd-navlbl">Running Metrics</span><span class="count" id="cnt-RunningMetrics"></span></button>
+    <button class="tab" data-team="TeamMetrics" title="Team Metrics"><i class="ph ph-trophy sd-navico"></i><span class="sd-navlbl">Team Metrics</span><span class="count" id="cnt-TeamMetrics"></span></button>
     <button class="tab" data-team="Creatives" title="Creatives Report"><i class="ph ph-palette sd-navico"></i><span class="sd-navlbl">Creatives Report</span><span class="count" id="cnt-Creatives"></span></button>
   </div>
 
@@ -2824,6 +2825,7 @@
   <div id="view-HITSRecovery" class="view"></div>
   <div id="view-HypercareAnalysis" class="view"></div>
   <div id="view-RunningMetrics" class="view"></div>
+  <div id="view-TeamMetrics" class="view"></div>
   <div id="view-Creatives" class="view"></div>
 
   <p class="footer-note">
@@ -3048,6 +3050,9 @@ const OAUTH_CLIENT_ID = "994149798060-fh4eibg7blhifkbsh0p9sds8rs3fkvd9.apps.goog
 const OAUTH_SCOPES    = "https://www.googleapis.com/auth/spreadsheets.readonly";
 const SHEETS = {
   hypercare:      { fileId: "1Aqv29misVtWdWhoYzFGVgFQDkawKycGG5zj18Y0mRNI",  tab: "Inputs" },
+  // Hits Handover — org-wide HIT 1 log. A row counts as DELIVERED when the
+  // "Handover Status" checkbox (col I) is ticked, i.e. TRUE. See TEAM METRICS.
+  hitsHandover:   { fileId: "198xsGns4LC-80BqAoOdv_Aup29udacaam8WB7jOZalA",  tab: "HIT 1 Handover" },
   calling:        { fileId: "18L6T7JTuh-bS5Nx2UlJg_A1BGQx2xEa6LY4aULuzuVw",  tab: "CallDump" },
   revived:        { fileId: "1BFlI-jHjbfg8SQpS6iCNgL4oT8hbECUjvRXF060hHbo",  tab: "Form Responses" },
   tasks:          { fileId: "12rfk37xtBfletLM1w-gfeiuPZof5ctxnDy_75V5yL-o",  tab: "Task" },
@@ -3094,7 +3099,7 @@ const SHEETS_FAILED_PLACEHOLDER = /^FILL_IN_/;
 // Bumped on every push so the UI can show which build the user is actually
 // running. If this string doesn't match the latest deploy, the browser is
 // serving a cached/older version.
-const BUILD_VERSION = "2026-10-13 · Seller View: one All Marketing tile carrying both counts";
+const BUILD_VERSION = "2026-10-13 · Team Metrics: HITS delivered vs target + Spend/Live, Task and Call compliance";
 // Optional convenience: persist file IDs to localStorage so you don't have to
 // edit the file every redeploy. If a value is set in localStorage it takes
 // precedence over the hard-coded one above. See window.hcSetSheetId() helper.
@@ -3185,6 +3190,61 @@ const SCA_OWNER_PATTERNS = {
   "Sankhajit Ghosh": ["sankhajit"],
 };
 const DISPLAY = { "Nikita S GC": "Nikita Sinha" };
+// ---- TEAM METRICS ---------------------------------------------------------
+// Monthly HIT-1 delivery targets per GC, set by the owner. Keyed by the roster
+// name (MKT_GCS), not the sheet's spelling — the sheet writes "Nikita Sinha "
+// with a trailing space, so matching is by token (see _hitsGC).
+const HITS_TARGETS = {
+  "Tanaya Gore": 8,
+  "Nikita S GC": 8,
+  "Sargunpreet Singh": 8,
+  "Sandipan Sarkar": 2,
+};
+// Call Compliance window: a seller counts as covered if they had at least one
+// CONNECTED call in this many days.
+const CALL_COMPLIANCE_DAYS = 7;
+
+// Map a Hits Handover "GC Name" cell to a roster GC. Token-based on purpose:
+// that sheet is maintained by hand and emits "Nikita Sinha " (trailing space),
+// "Himanshu mall" vs "Himanshu Mall", etc. Equality would silently drop rows.
+function _hitsGC(name) {
+  const n = String(name || "").toLowerCase();
+  for (const [token, gc] of [["nikita", "Nikita S GC"], ["tanaya", "Tanaya Gore"],
+                             ["sargun", "Sargunpreet Singh"], ["sandipan", "Sandipan Sarkar"]]) {
+    if (n.includes(token)) return gc;
+  }
+  return null;
+}
+
+// Hits Handover sheet → delivered HIT-1 rows for the Hypercare GCs.
+// Positional layout (tab "HIT 1 Handover"):
+//   0 Week · 1 HIT Date ("Oct 1 2026") · 2 Seller ID · 3 Seller Name
+//   4 GC Name · 5 GM Name · 8 Handover Status (TRUE = ticked = delivered)
+// NOTE fetchOne returns CSV TEXT, so parse it — see the processSpendLiveCSV
+// gotcha where iterating the string yielded zero rows.
+function processHitsHandoverCSV(text) {
+  const rows = Array.isArray(text) ? text : parseCSV(text || "");
+  const out = [];
+  for (let i = 1; i < rows.length; i++) {
+    const r = rows[i];
+    if (!r || r.length < 9) continue;
+    const gc = _hitsGC(r[4]);
+    if (!gc) continue;                       // not one of our GCs
+    const d = parseDate(r[1]);
+    if (!d) continue;
+    out.push({
+      gc,
+      date_iso: localISODate(d),
+      month: localISODate(d).slice(0, 7),    // "2026-10"
+      seller_id: norm(r[2]),
+      seller_name: norm(r[3]),
+      gm: norm(r[5]),
+      // The tick. Sheets exports a checkbox as TRUE/FALSE text.
+      delivered: /^true$/i.test(String(r[8] || "").trim()),
+    });
+  }
+  return { rows: out, count: out.length };
+}
 
 let DATA = null, REVIVAL = null, SCALING = null, CACHED_PAYLOAD = null;
 let META = { lastFetch: null, fetching: false, error: null };
@@ -5156,6 +5216,7 @@ async function fetchSheets(opts) {
     h, c, rRaw, tRaw, tsRaw, crRaw, uRaw, rfRaw,
     ccRaw, arrRaw, exRaw, rtRaw, msRaw,
     hbmRaw, hmRaw, haRaw, haiRaw, gcRaw, dmRaw, slRaw, crvRaw, crvAbhRaw, crvTeamRaw,
+    hhRaw,
   ] = await Promise.all([
     tryFetch("hypercare",            "Hypercare Metrics"),
     fetchOrAgg("calling",            "Calling sheet"),
@@ -5186,6 +5247,7 @@ async function fetchSheets(opts) {
     crvFetch("creatives",        "Creatives · Srabanika"),
     crvFetch("creativesAbhinav", "Creatives · Abhinav"),
     crvFetch("creativesTeam",    "Creatives · Aditya + Campaign"),
+    tryFetch("hitsHandover",     "Hits Handover sheet"),
   ]);
 
   if (!h) {
@@ -5220,6 +5282,8 @@ async function fetchSheets(opts) {
   const chatReply = HC_AGG.chatReply || safeParse("Chat Reply", crRaw, processChatReplyCSV,
     { bySeller: {}, count: 0 });
   const unassignment = HC_AGG.unassignment || safeParse("Unassignment", uRaw, processUnassignmentCSV,
+    { rows: [], count: 0 });
+  const hitsHandover = safeParse("Hits Handover", hhRaw, processHitsHandoverCSV,
     { rows: [], count: 0 });
   const remainingFunds = safeParse("Remaining Funds", rfRaw, processRemainingFundsCSV,
     { bySeller: {}, count: 0 });
@@ -5319,6 +5383,7 @@ async function fetchSheets(opts) {
   data.dailyARR = dailyARR;
   data.experimental = experimental;
   data.revivalTrack = revivalTrack;
+  data.hitsHandover = hitsHandover;
   data.mspRecovery = mspRecovery;
   data.hitsBeforeMarchCohort = hitsBeforeMarchCohort;
   data.hitsMarchCohort = hitsMarchCohort;
@@ -12711,12 +12776,139 @@ function _hcaRevivedTable() {
     </div>`;
 }
 
+// ===========================================================================
+//                              TEAM METRICS
+// One scorecard per Hypercare GC: HITS delivered vs monthly target, plus
+// Spend/Live, Task Compliance and Call Compliance. Sources, all per-GC:
+//   HITS delivered  — Hits Handover sheet, "HIT 1 Handover" tab, rows whose
+//                     Handover Status checkbox is TRUE in the selected month.
+//   Spend/Live      — card 2787 via mb/marketingSellers.json (yesterday > 1).
+//   Task Compliance — card 14081 via mb/taskAdherence.json (completed_pct,
+//                     sla_pct) — the same numbers the Running Metrics tab uses.
+//   Call Compliance — card 10206 via mb/calling.json: share of that GC's
+//                     assigned sellers with >=1 CONNECTED call in the last
+//                     CALL_COMPLIANCE_DAYS. Defined here for the first time.
+// ===========================================================================
+let tmMonth = null;   // "YYYY-MM"; null = current month
+
+function _tmMonths() {
+  const p = (typeof CACHED_PAYLOAD !== 'undefined' && CACHED_PAYLOAD) ? CACHED_PAYLOAD : null;
+  const hh = p && p.hitsHandover ? p.hitsHandover.rows : [];
+  return [...new Set(hh.map(r => r.month))].sort().reverse();
+}
+
+function _tmCallCompliance() {
+  // seller_id -> had a connected call within the window
+  const p = (typeof CACHED_PAYLOAD !== 'undefined' && CACHED_PAYLOAD) ? CACHED_PAYLOAD : null;
+  const events = (p && p.call_events) ? p.call_events : [];
+  const cut = Date.now() - CALL_COMPLIANCE_DAYS * 86400000;
+  const covered = new Set();
+  for (const e of events) {
+    if (e && e.conn && e.ts >= cut) covered.add(e.sid);
+  }
+  return covered;
+}
+
+function renderTeamMetrics() {
+  const host = document.getElementById('view-TeamMetrics');
+  if (!host) return;
+  if (!DATA) {
+    host.innerHTML = `<div class="card"><h3>Team Metrics <span class="pending-tag">LOADING</span></h3><div class="pending-card"><h4>Waiting for the dashboard to finish loading…</h4></div></div>`;
+    return;
+  }
+  const p = (typeof CACHED_PAYLOAD !== 'undefined' && CACHED_PAYLOAD) ? CACHED_PAYLOAD : null;
+  const hh = (p && p.hitsHandover) ? p.hitsHandover : { rows: [], count: 0 };
+  const months = _tmMonths();
+  const month = tmMonth || (months[0] || localISODate(new Date()).slice(0, 7));
+  const ta = (typeof HC_TASK_ADH !== 'undefined' && HC_TASK_ADH) ? HC_TASK_ADH : null;
+  const covered = _tmCallCompliance();
+
+  const monthLabel = (() => {
+    const [y, m] = month.split('-').map(Number);
+    return new Date(Date.UTC(y, m - 1, 1)).toLocaleDateString('en-GB', { month: 'long', year: 'numeric', timeZone: 'UTC' });
+  })();
+
+  let totD = 0, totT = 0, rows = '';
+  for (const gc of MKT_GCS) {
+    const disp = DISPLAY[gc] || gc;
+    const mine = hh.rows.filter(r => r.gc === gc && r.month === month);
+    const delivered = mine.filter(r => r.delivered).length;
+    const target = HITS_TARGETS[gc];
+    const pend = mine.length - delivered;
+    totD += delivered;
+    if (target) totT += target;
+    const pct = target ? Math.round((delivered / target) * 1000) / 10 : null;
+
+    const g = DATA.gc_summary[gc];
+    const sl = g ? g.spend_live_pct : null;
+    const t = ta && ta.totals ? ta.totals[gc] : null;
+
+    const sellers = DATA.sellers.filter(x => x.crm_gc === gc);
+    const called = sellers.filter(x => covered.has(x.seller_id)).length;
+    const callPct = sellers.length ? Math.round((called / sellers.length) * 1000) / 10 : null;
+
+    const bar = (v, col) => `<div class="sl-bar" style="margin-top:4px;"><span style="width:${Math.min(Math.max(v || 0, 0), 100)}%;background:${col};"></span></div>`;
+    const hitCol = pct === null ? '#64748b' : (pct >= 100 ? '#047857' : (pct >= 60 ? '#b45309' : '#b91c1c'));
+    rows += `<tr>
+      <td style="font-weight:700;">${escHtml(disp)}</td>
+      <td class="num" style="font-weight:800;color:${hitCol};font-size:15px;">${delivered}<span style="color:#94a3b8;font-weight:600;font-size:12px;"> / ${target || '—'}</span>${bar(pct, hitCol)}</td>
+      <td class="num" style="color:${hitCol};font-weight:700;">${pct === null ? '—' : pct + '%'}</td>
+      <td class="num" style="color:#64748b;">${pend || '<span class="empty-cell">—</span>'}</td>
+      <td class="num" style="font-weight:700;">${sl === null ? '—' : sl + '%'}${bar(sl, '#6366f1')}<span style="color:#94a3b8;font-size:11px;">${g ? g.live_yesterday_count + ' / ' + g.total_assigned : ''}</span></td>
+      <td class="num" style="font-weight:700;">${t ? t.completed_pct + '%' : '—'}${t ? bar(t.completed_pct, '#0ea5e9') : ''}<span style="color:#94a3b8;font-size:11px;">${t ? fmtNum(t.completed) + ' / ' + fmtNum(t.total) : ''}</span></td>
+      <td class="num" style="font-weight:700;">${t ? t.sla_pct + '%' : '—'}${t ? bar(t.sla_pct, '#8b5cf6') : ''}</td>
+      <td class="num" style="font-weight:700;">${callPct === null ? '—' : callPct + '%'}${bar(callPct, '#059669')}<span style="color:#94a3b8;font-size:11px;">${called} / ${sellers.length}</span></td>
+    </tr>`;
+  }
+  const totPct = totT ? Math.round((totD / totT) * 1000) / 10 : null;
+  const monthOpts = months.map(m => `<option value="${m}"${m === month ? ' selected' : ''}>${m}</option>`).join('');
+
+  host.innerHTML = `
+    <div class="card">
+      <h3>🏆 Team Metrics <span class="src-tag">${escHtml(monthLabel.toUpperCase())}</span></h3>
+      <p style="color:#475569;font-size:12px;margin:0 0 10px 0;">
+        HITS delivered counts rows in the <b>Hits Handover</b> sheet (<i>HIT 1 Handover</i>) whose
+        <b>Handover Status is ticked</b>, for the selected month. Spend/Live, Task and Call
+        compliance are live from the Metabase snapshots.
+      </p>
+      <div class="filter-bar" style="margin-bottom:10px;">
+        <span class="lbl">Month:</span>
+        <select id="tm-month" style="padding:5px 8px;border-radius:8px;">${monthOpts}</select>
+        <span style="margin-left:auto;font-size:12px;color:#475569;">Team HITS:
+          <b style="font-size:15px;color:${totPct !== null && totPct >= 100 ? '#047857' : '#b45309'};">${totD} / ${totT}</b>
+          ${totPct === null ? '' : `<span style="color:#94a3b8;"> (${totPct}%)</span>`}</span>
+      </div>
+      <div class="tbl-wrap"><table class="t">
+        <thead><tr>
+          <th>GC</th>
+          <th class="num">HITS delivered / target</th>
+          <th class="num">Achieved</th>
+          <th class="num">Not ticked</th>
+          <th class="num">Spend / Live</th>
+          <th class="num">Task completed</th>
+          <th class="num">Task in SLA</th>
+          <th class="num">Call compliance (${CALL_COMPLIANCE_DAYS}d)</th>
+        </tr></thead>
+        <tbody>${rows}</tbody>
+      </table></div>
+      <p style="color:#64748b;font-size:11px;margin-top:8px;line-height:1.6;">
+        <b>Not ticked</b> = rows logged for that GC this month whose Handover Status is still FALSE — raised but not credited.
+        <b>Task completed</b> = completed ÷ (completed + closed + pending); <b>in SLA</b> = of the completed ones, those within <code>sla_in_min</code> (card 14081).
+        <b>Call compliance</b> = assigned sellers with at least one <b>connected</b> call in the last ${CALL_COMPLIANCE_DAYS} days (card 10206) ÷ assigned.
+        ${hh.count === 0 ? '<br><b style="color:#b91c1c;">Hits Handover sheet returned no rows for these GCs — check access to the sheet.</b>' : ''}
+      </p>
+    </div>`;
+
+  const sel = document.getElementById('tm-month');
+  if (sel) sel.addEventListener('change', e => { tmMonth = e.target.value; renderTeamMetrics(); });
+}
+
 // Switch the active workspace. Used by both the top tab bar AND the homepage tiles.
 function activateTeam(team) {
   // Delisted workspaces fall back to Home rather than opening an empty view.
   if (team === "Scaling" && !SHOW_SCALING) team = "Home";
   document.querySelectorAll(".tabs .tab").forEach(b => b.classList.remove("active"));
-  document.querySelectorAll("#view-Home, #view-Scaling, #view-Marketing, #view-Unassignment, #view-Revival, #view-Daily, #view-CallHistory, #view-HITSRecovery, #view-HypercareAnalysis, #view-RunningMetrics, #view-Creatives").forEach(v => v.classList.remove("active"));
+  document.querySelectorAll("#view-Home, #view-Scaling, #view-Marketing, #view-Unassignment, #view-Revival, #view-Daily, #view-CallHistory, #view-HITSRecovery, #view-HypercareAnalysis, #view-RunningMetrics, #view-TeamMetrics, #view-Creatives").forEach(v => v.classList.remove("active"));
   const tabBtn = document.querySelector(`.tabs .tab[data-team="${team}"]`);
   if (tabBtn) tabBtn.classList.add("active");
   const view = document.getElementById(`view-${team}`);
@@ -12730,6 +12922,7 @@ function activateTeam(team) {
   if (team === "HITSRecovery") renderHITSRecovery();
   if (team === "HypercareAnalysis") renderHypercareAnalysis();
   if (team === "RunningMetrics") renderRunningMetrics();
+  if (team === "TeamMetrics") renderTeamMetrics();
   if (team === "Creatives") renderCreativesTracker();
 }
 // Strip delisted workspaces out of the DOM so they cannot be clicked or tabbed to.
