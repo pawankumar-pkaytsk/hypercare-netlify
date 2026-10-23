@@ -3099,7 +3099,7 @@ const SHEETS_FAILED_PLACEHOLDER = /^FILL_IN_/;
 // Bumped on every push so the UI can show which build the user is actually
 // running. If this string doesn't match the latest deploy, the browser is
 // serving a cached/older version.
-const BUILD_VERSION = "2026-10-13 · Team Metrics: HITS delivered vs target + Spend/Live, Task and Call compliance";
+const BUILD_VERSION = "2026-10-23 · Seller View: distinguish today-not-yet-reported from zero";
 // Optional convenience: persist file IDs to localStorage so you don't have to
 // edit the file every redeploy. If a value is set in localStorage it takes
 // precedence over the hard-coded one above. See window.hcSetSheetId() helper.
@@ -4455,6 +4455,13 @@ function buildDashboardData(hyp, calls, revived, tasks, troubleshoot, chatReply,
   // climbs until midnight, so it cannot be compared across days — and the 98-day
   // Hypercare Analysis history is built on the yesterday rule. Keep both.
   const mktSpendingNow = s => ((s.today_spend || 0) > 0 || (s.yesterday_spend || 0) > 0);
+  // Card 2787's today_spend lands LATE — it is still 0 for every seller until
+  // roughly 11:00 IST, so any refresh before then captures a feed-wide zero.
+  // Printing "(0 today)" in that window looks like a bug (reported 2026-10-23:
+  // the 10:32 IST refresh shipped 0 for all 326 sellers while the card itself
+  // showed 89 of them spending barely half an hour later). Distinguish "nobody
+  // has spent yet" from "today has not been reported yet".
+  MKT_TODAY_REPORTED = hyp.marketingSellers.some(s => (s.today_spend || 0) > 0);
   for (const gc of MKT_GCS) {
     const gcRows = hyp.marketingSellers.filter(s => s.crm_gc === gc);
     const A = gcRows.filter(mktLive).length;
@@ -5029,6 +5036,8 @@ let PRIORITY_CALLING = null;
 // Marketing Seller View scope, sourced from Metabase (cards 11011 + 7753) instead
 // of the org-locked Google Inputs sheet — see mb/marketingSellers.json.
 let MKT_SELLERS_MB = null;
+// False when card 2787 has not yet reported ANY today_spend (early-morning runs).
+let MKT_TODAY_REPORTED = true;
 // Revival GC Spending Sellers feed (cards 7753 + 2787 + 10189 + 9353).
 let REV_GC_SELLERS = null;
 // Task Adherence feed (card 14081 → mb/taskAdherence.json), ~31 KB.
@@ -5615,11 +5624,11 @@ function renderSpendLiveCards() {
     // ONE overall tile carrying both numbers, mirroring the per-GC tiles below — a second
     // "All Marketing — …" tile repeated the scope in every label and wrapped them onto two
     // lines. Scope is stated once here and the GC tiles inherit the same layout.
-    cards += `<div class="sl-card overall"><div class="sl-label">All Marketing</div><div class="sl-value">${o.spend_live_pct}<span class="pct">%</span></div><div class="sl-sub">${o.live_yesterday_count} live yesterday / ${o.total_assigned} assigned<br><span style="color:#6ee7b7;font-weight:700;">${o.spending_now_count} spending now</span> <span style="color:rgba(255,255,255,0.72);">(${o.spending_today_count} today · ${escHtml(mktFeedAgeLabel())})</span></div><div class="sl-bar"><span style="width:${Math.min(o.spend_live_pct,100)}%"></span></div></div>`;
+    cards += `<div class="sl-card overall"><div class="sl-label">All Marketing</div><div class="sl-value">${o.spend_live_pct}<span class="pct">%</span></div><div class="sl-sub">${o.live_yesterday_count} live yesterday / ${o.total_assigned} assigned<br><span style="color:#6ee7b7;font-weight:700;">${o.spending_now_count} spending now</span> <span style="color:rgba(255,255,255,0.72);">(${MKT_TODAY_REPORTED ? o.spending_today_count + ' today' : 'today not reported yet'} · ${escHtml(mktFeedAgeLabel())})</span></div><div class="sl-bar"><span style="width:${Math.min(o.spend_live_pct,100)}%"></span></div></div>`;
   }
   for (const gc of gcs) {
     const g = DATA.gc_summary[gc];
-    cards += `<div class="sl-card"><div class="sl-label">${g.display}</div><div class="sl-value">${g.spend_live_pct}<span class="pct">%</span></div><div class="sl-sub">${g.live_yesterday_count} / ${g.total_assigned} sellers live<br><span style="color:#059669;font-weight:700;">${g.spending_now_count} spending now</span> <span style="color:#94a3b8;">(${g.spending_today_count} today)</span></div><div class="sl-bar"><span style="width:${Math.min(g.spend_live_pct,100)}%"></span></div></div>`;
+    cards += `<div class="sl-card"><div class="sl-label">${g.display}</div><div class="sl-value">${g.spend_live_pct}<span class="pct">%</span></div><div class="sl-sub">${g.live_yesterday_count} / ${g.total_assigned} sellers live<br><span style="color:#059669;font-weight:700;">${g.spending_now_count} spending now</span> <span style="color:#94a3b8;">(${MKT_TODAY_REPORTED ? g.spending_today_count + ' today' : 'today pending'})</span></div><div class="sl-bar"><span style="width:${Math.min(g.spend_live_pct,100)}%"></span></div></div>`;
   }
   if (!cards) cards = `<div style="color:#94a3b8;font-size:12px;padding:6px 0;">No GCs selected.</div>`;
   return `<div class="sl-grid">${cards}</div>`;
