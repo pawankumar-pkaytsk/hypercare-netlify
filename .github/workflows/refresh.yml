@@ -54,6 +54,21 @@ jobs:
             echo "No data changes."
           else
             git commit -m "Daily snapshot refresh ($(date -u +%FT%TZ))"
+            # A rebase conflict here is NEVER a real merge: these mb/*.json files are
+            # regenerated wholesale from Metabase, so the two sides are just two snapshots
+            # of the same query. Keep OURS (the one we just generated) and carry on.
+            # NOTE "--theirs" IS ours during a rebase — the commit being replayed. Using
+            # "--ours" would silently keep the older snapshot, the exact trap the project
+            # notes warn about.
+            # Without this the job just FAILED and threw away the fresher pull: on
+            # 2026-11-02 the 23:44 marketing run computed 362 sellers at 00:06:09Z, lost
+            # the push to a conflict with the Monday rollover job's 00:05:25Z commit, and
+            # the dashboard served the older snapshot until someone re-ran it by hand.
+            if ! git pull --rebase origin main; then
+              git checkout --theirs -- mb/*.json mb/agg-manifest.json 2>/dev/null || true
+              git add -- mb/*.json mb/agg-manifest.json
+              GIT_EDITOR=true git rebase --continue || { git rebase --abort; exit 1; }
+            fi
             git push
             echo "Pushed refreshed snapshot."
           fi
