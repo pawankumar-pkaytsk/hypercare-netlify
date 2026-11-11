@@ -2778,6 +2778,7 @@
       <span class="chip on" data-gc="Tanaya Gore">Tanaya Gore</span>
       <span class="chip on" data-gc="Sargunpreet Singh">Sargunpreet Singh</span>
       <span class="chip on" data-gc="Sandipan Sarkar">Sandipan Sarkar</span>
+      <span class="chip on" data-gc="Ankit Jaiswal">Ankit Jaiswal</span>
     </div>
     <div id="sub-seller"     class="subview active"></div>
     <div id="sub-bucket"     class="subview"></div>
@@ -3099,7 +3100,7 @@ const SHEETS_FAILED_PLACEHOLDER = /^FILL_IN_/;
 // Bumped on every push so the UI can show which build the user is actually
 // running. If this string doesn't match the latest deploy, the browser is
 // serving a cached/older version.
-const BUILD_VERSION = "2026-10-23 · Seller View: distinguish today-not-yet-reported from zero";
+const BUILD_VERSION = "2026-11-11 · Add Ankit Jaiswal to the Hypercare roster";
 // Optional convenience: persist file IDs to localStorage so you don't have to
 // edit the file every redeploy. If a value is set in localStorage it takes
 // precedence over the hard-coded one above. See window.hcSetSheetId() helper.
@@ -3142,6 +3143,9 @@ const MKT_OWNER_PATTERNS = {
   "Tanaya Gore":       ["tanaya"],
   "Sargunpreet Singh": ["sargun"],
   "Sandipan Sarkar":   ["sandipan"],
+  // "jaiswal", NOT "ankit": card 7753 also carries "Ankit Malakar" and "Ankit S P",
+  // so a first-name token would pull two other people's sellers into his book.
+  "Ankit Jaiswal":     ["jaiswal"],
 };
 const REV_OWNER_PATTERNS = {
   "Aanchal Agrawal": ["aanchal"],
@@ -3173,7 +3177,7 @@ const ACTIVE_DAYS = 45;
 // Roster as of 2026-08-31. Removed: Aaruni Vaidya (GM, never a working GC),
 // Dev Vashisth (left the org), Sadiya Rajgoli (moved teams). All three had already
 // dropped out of card 12477 upstream; this keeps the Marketing scope in step.
-const MKT_GCS = ["Nikita S GC","Tanaya Gore","Sargunpreet Singh","Sandipan Sarkar"];
+const MKT_GCS = ["Nikita S GC","Tanaya Gore","Sargunpreet Singh","Sandipan Sarkar","Ankit Jaiswal"];
 const REV_GCS = ["Aanchal Agrawal","Vishal Thapa","Debasish Das","Kavita Rai"];
 // GCs to exclude from every revival report (data-driven views too, e.g. GC-wise
 // Revival Compliance where GC names come from card 7753).
@@ -3199,6 +3203,8 @@ const HITS_TARGETS = {
   "Nikita S GC": 8,
   "Sargunpreet Singh": 8,
   "Sandipan Sarkar": 2,
+  // Ankit Jaiswal joined 2026-11-11 — target NOT yet set by the owner. Leaving it
+  // out renders "—" and keeps him out of the team total, rather than inventing one.
 };
 // Call Compliance window: a seller counts as covered if they had at least one
 // CONNECTED call in this many days.
@@ -3210,7 +3216,8 @@ const CALL_COMPLIANCE_DAYS = 7;
 function _hitsGC(name) {
   const n = String(name || "").toLowerCase();
   for (const [token, gc] of [["nikita", "Nikita S GC"], ["tanaya", "Tanaya Gore"],
-                             ["sargun", "Sargunpreet Singh"], ["sandipan", "Sandipan Sarkar"]]) {
+                             ["sargun", "Sargunpreet Singh"], ["sandipan", "Sandipan Sarkar"],
+                             ["jaiswal", "Ankit Jaiswal"]]) {
     if (n.includes(token)) return gc;
   }
   return null;
@@ -7735,6 +7742,7 @@ const RM_GC_TOKENS = [
   ["tanaya",   "Tanaya Gore"],
   ["sargun",   "Sargunpreet Singh"],
   ["sandipan", "Sandipan Sarkar"],
+  ["jaiswal",  "Ankit Jaiswal"],   // NOT "ankit" — see MKT_OWNER_PATTERNS
 ];
 // Token match, not equality: this sheet writes 'SANDIPAN SARKAR', 'Tanaya  Gore'
 // and 'Sargunpreet  Singh' (caps / double spaces), same as cards 7753 and 14081.

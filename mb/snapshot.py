@@ -243,7 +243,8 @@ def build_revival_spend(url, H):
 # Mirror of the dashboard's MKT_GCS. Removed Nishan Bandekar (left org 2026-07);
 # added Tanaya Gore + Sargunpreet Singh (joined 2026-07). Names are canonicalized
 # (card 7753 growth_consultant_name has stray double spaces).
-MKT_GCS = ["Nikita S GC", "Tanaya Gore", "Sargunpreet Singh", "Sandipan Sarkar"]
+MKT_GCS = ["Nikita S GC", "Tanaya Gore", "Sargunpreet Singh", "Sandipan Sarkar",
+           "Ankit Jaiswal"]
 
 # Some GCs appear under name variants in card 7753 → collapse to one MKT_GCS entry.
 # Nikita Sinha shows up as "Nikita S", "Nikita S GC" and "Nikita Sinha".
@@ -255,7 +256,10 @@ GC_ALIASES = {"Nikita S": "Nikita S GC", "Nikita Sinha": "Nikita S GC"}
 REV_GCS = ["Aanchal Agrawal", "Vishal Thapa", "Debasish Das", "Kavita Rai"]
 SCA_GCS = ["Sankhajit Ghosh"]
 # Spelling variants / safe shorter prefixes that a first-name split won't produce.
-TASK_TOKEN_EXTRAS = ["debashish", "sargun"]
+# "jaiswal" is listed explicitly because _task_tokens() derives "ankit" from the
+# first name, and card 7753 also has "Ankit Malakar" and "Ankit S P" — attribution
+# everywhere else keys on "jaiswal" so those two can never land in his book.
+TASK_TOKEN_EXTRAS = ["debashish", "sargun", "jaiswal"]
 
 
 def _task_tokens():
@@ -767,7 +771,8 @@ def _ta_gc(name):
     """
     n = str(name or "").lower()
     for token, gc in (("nikita", "Nikita S GC"), ("tanaya", "Tanaya Gore"),
-                      ("sargun", "Sargunpreet Singh"), ("sandipan", "Sandipan Sarkar")):
+                      ("sargun", "Sargunpreet Singh"), ("sandipan", "Sandipan Sarkar"),
+                      ("jaiswal", "Ankit Jaiswal")):
         if token in n:
             return gc
     return None
