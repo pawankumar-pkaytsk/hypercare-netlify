@@ -476,10 +476,26 @@ def build_marketing_sellers(url, H):
         raise last
     try:
         pnl_rows = pull(11011)   # last-3-week spend + pnl (the active universe)
-        map_rows = pull(7753)    # GC / GM / KAE mapping
+        map_rows = pull(7753)    # GC / GM / KAE mapping (org-wide, 72k rows)
     except Exception as e:
         print(f"[marketingSellers] FAILED: {e} (keeping previous file)")
         return
+    # Card 12477 (the hypercare roster) is the AUTHORITATIVE GC assignment where it
+    # has the seller; 7753 only fills the gap for sellers 12477 does not carry.
+    #
+    # WHY: 7753 repeatedly redistributes a GC's whole book overnight while the CRM —
+    # and 12477 — still show it correctly. On 2026-11-17 the GCs could see their
+    # sellers in the CRM but the dashboard showed Nikita with 7. Comparing the cards:
+    # all 330 of 12477's sellers are also in 7753, 98 of them DISAGREE, and every
+    # single disagreement was 12477 saying "Nikita S GC" while 7753 said Sandipan
+    # (34), Sargunpreet (33) or Tanaya (31) — i.e. 7753 had scattered her book.
+    # Four such lurches happened in twelve days (5/11/14/17 Nov); 12477 held steady.
+    # Best-effort: if 12477 fails we still have the old 7753-only behaviour.
+    try:
+        roster_rows = pull(12477)
+    except Exception as e:
+        print(f"[marketingSellers] 12477 pull failed ({e}); falling back to 7753 only")
+        roster_rows = []
     # Daily spend (card 2787: one row per seller, today/yesterday pre-summed).
     try:
         day_rows = pull(2787)
@@ -508,6 +524,14 @@ def build_marketing_sellers(url, H):
             day_by[sid] = {'today': _spend_num(r.get('today_spend')),
                            'yesterday': _spend_num(r.get('yesterday_spend'))}
     unassigned = _unassigned_ids()
+    # seller -> GC per the roster card, applied as an override below.
+    roster_gc = {}
+    for r in roster_rows:
+        sid = str(r.get('seller_id') or '').strip()
+        g = _gc_canon(_hc_get(r, 9, 'growth_consultant_name'))
+        if sid and g and g != '-':
+            roster_gc[sid] = g
+    overridden = 0
     mp = {}
     for r in map_rows:
         sid = str(r.get('seller_id') or '').strip()
@@ -516,6 +540,10 @@ def build_marketing_sellers(url, H):
         mp[sid] = {'gc': _gc_canon(r.get('growth_consultant_name')),
                    'gm': _canon(r.get('growth_manager_name')),
                    'kae': _canon(r.get('key_account_executive_name'))}
+        rg = roster_gc.get(sid)
+        if rg and rg != mp[sid]['gc']:
+            mp[sid]['gc'] = rg      # 12477 wins — see the note above
+            overridden += 1
 
     def _pnl(v):
         try:
@@ -593,6 +621,8 @@ def build_marketing_sellers(url, H):
     path = os.path.join(REPO, "mb", "marketingSellers.json")
     with open(path, "w") as f:
         json.dump(out, f, separators=(',', ':'))
+    print(f"[marketingSellers] roster card 12477 covered {len(roster_gc)} sellers, "
+          f"overriding {overridden} GC assignments that card 7753 had wrong")
     print(f"[marketingSellers] {len(sellers)} sellers across {len(per_gc)} GCs "
           f"({with_pnl} with 11011 P&L visibility, {len(sellers) - with_pnl} without) → {path}  perGC={per_gc}")
     # Reuses map_rows — no extra card pull.
