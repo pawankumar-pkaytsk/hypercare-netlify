@@ -532,10 +532,39 @@ def build_marketing_sellers(url, H):
         if sid and g and g != '-':
             roster_gc[sid] = g
     overridden = 0
+    # ---- Hypercare membership gate -------------------------------------------
+    # Scope is by GC NAME (the documented fix for the old blank-view bug), which
+    # means a seller mapped to e.g. "Nikita Sinha" under a DIFFERENT GM is pulled in
+    # even though it is not a Hypercare account. Nikita reported exactly this on
+    # 2026-11-20: Satranginari (65698c93…) showed on the dashboard but not in her CRM —
+    # 7753 has it as GC "Nikita Sinha" with GM "-", and it is absent from roster 12477.
+    # So require some POSITIVE evidence of Hypercare membership: either the seller is
+    # on the roster card, or its GM is one the roster itself uses.
+    # The GM set is DERIVED, never hardcoded — hardcoding a GM name is what broke the
+    # view originally (the old filter looked for "Pawan Kumar" after the GM changed).
+    hyper_gms = set()
+    for r in map_rows:
+        sid = str(r.get('seller_id') or '').strip()
+        if sid in roster_gc:
+            gm = _canon(r.get('growth_manager_name'))
+            if gm and gm != '-':
+                hyper_gms.add(gm)
+    print(f"[marketingSellers] hypercare GMs derived from roster 12477: {sorted(hyper_gms) or 'NONE — gate disabled'}")
+    dropped_foreign = 0
     mp = {}
     for r in map_rows:
         sid = str(r.get('seller_id') or '').strip()
         if not sid or sid in unassigned:   # churned / moved to self-serve → not assigned
+            continue
+        # Not on the roster AND not under a Hypercare GM → same name, different team.
+        # Skipped only when the gate could actually be built, so a failed 12477 pull
+        # degrades to the old behaviour rather than emptying the view.
+        # Only meaningful for sellers whose GC name actually collides with one of ours —
+        # everyone else is filtered out later by the MKT_GCS check anyway, and counting
+        # them here made the log read "dropped 67,824 sellers" for a 3-seller problem.
+        if hyper_gms and _gc_canon(r.get('growth_consultant_name')) in set(MKT_GCS) \
+           and sid not in roster_gc and _canon(r.get('growth_manager_name')) not in hyper_gms:
+            dropped_foreign += 1
             continue
         mp[sid] = {'gc': _gc_canon(r.get('growth_consultant_name')),
                    'gm': _canon(r.get('growth_manager_name')),
@@ -621,6 +650,8 @@ def build_marketing_sellers(url, H):
     path = os.path.join(REPO, "mb", "marketingSellers.json")
     with open(path, "w") as f:
         json.dump(out, f, separators=(',', ':'))
+    print(f"[marketingSellers] dropped {dropped_foreign} seller(s) whose GC name matches a "
+          f"Hypercare GC but belong to another team (not on 12477, GM not a Hypercare GM)")
     print(f"[marketingSellers] roster card 12477 covered {len(roster_gc)} sellers, "
           f"overriding {overridden} GC assignments that card 7753 had wrong")
     print(f"[marketingSellers] {len(sellers)} sellers across {len(per_gc)} GCs "
