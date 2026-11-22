@@ -1,11 +1,8 @@
 {
-  "generatedAt": "2026-11-21T12:44:08.130Z",
+  "generatedAt": "2026-11-22T12:38:56.661Z",
   "sources": {
-    "dailyARR": {
-      "bytes": 37616402
-    },
     "gcv3Dump": {
-      "bytes": 8866198
+      "bytes": 8867338
     }
   }
 }
